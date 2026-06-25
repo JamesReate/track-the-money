@@ -1,0 +1,41 @@
+# XcodeGen spec for the shipping app. Generate the .xcodeproj with:
+#     xcodegen generate
+# (the .xcodeproj is gitignored — this file is the source of truth.)
+#
+# One multiplatform app target → iPhone, iPad, and Mac from a single codebase,
+# linking the local TTMCore Swift package. The app/ SPM package stays usable for
+# fast headless iteration (swift build); this Xcode target is what ships to the
+# App Store.
+name: TrackTheMoney
+options:
+  bundleIdPrefix: money.trackthe
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+packages:
+  TTMCore:
+    path: TTMCore
+targets:
+  TrackTheMoney:
+    type: application
+    supportedDestinations: [iOS, macOS]   # iPhone + iPad (iOS) and native Mac
+    sources:
+      - path: app/Sources/TrackTheMoney
+    dependencies:
+      - package: TTMCore
+        product: TTMCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: money.trackthe.app
+        PRODUCT_NAME: TrackTheMoney
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Track The Money
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.finance"
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_PREVIEWS: YES
+        # Mac: native AppKit-backed SwiftUI (not Catalyst).
+        SUPPORTS_MACCATALYST: NO
