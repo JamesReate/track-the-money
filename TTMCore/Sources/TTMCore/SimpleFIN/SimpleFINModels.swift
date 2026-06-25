@@ -8,7 +8,8 @@ public struct SFAccountSet: Decodable, Sendable {
     public let errors: [String]?
     public let accounts: [SFAccount]
 
-    enum CodingKeys: String, CodingKey { case errors = "errlist", accounts }
+    // beta-bridge returns "errors"; some SimpleFIN servers use "errlist".
+    enum CodingKeys: String, CodingKey { case errors, accounts }
 }
 
 public struct SFAccount: Decodable, Sendable {
