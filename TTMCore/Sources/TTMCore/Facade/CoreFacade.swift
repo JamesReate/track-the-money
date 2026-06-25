@@ -39,6 +39,21 @@ public struct SyncOutcome: Equatable, Sendable {
 
 public enum RuleApplyMode: Sendable { case forwardOnly, backfill, rerunAll }
 
+public struct TxnQuery: Sendable {
+    public var accountId: String?
+    public var categoryId: String?
+    public var from: UnixTime?
+    public var to: UnixTime?
+    public var searchText: String?
+    public var includePending: Bool
+    public var limit: Int
+    public init(accountId: String? = nil, categoryId: String? = nil, from: UnixTime? = nil,
+                to: UnixTime? = nil, searchText: String? = nil, includePending: Bool = true, limit: Int = 100) {
+        self.accountId = accountId; self.categoryId = categoryId; self.from = from; self.to = to
+        self.searchText = searchText; self.includePending = includePending; self.limit = limit
+    }
+}
+
 public struct InterestLine: Equatable, Sendable {
     public let accountId: String
     public let accountName: String
@@ -71,4 +86,8 @@ public protocol CoreFacade: Sendable {
     // Interest & debt cost
     func setPaymentSplit(transactionId: String, principal: Money, interest: Money, escrow: Money) async throws
     func interestSummary(from: UnixTime, to: UnixTime) async throws -> InterestRollup
+
+    // Transactions
+    func transactions(_ query: TxnQuery) async throws -> [TransactionRecord]
+    @discardableResult func detectTransfers() async throws -> Int
 }

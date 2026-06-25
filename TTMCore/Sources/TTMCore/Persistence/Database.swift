@@ -157,7 +157,31 @@ public final class Database: @unchecked Sendable {
             """)
         }
 
-        // FTS + ai_suggestions land in later migrations as those features arrive.
+        migrator.registerMigration("v2_fts") { db in
+            try db.execute(sql: """
+            CREATE VIRTUAL TABLE transactions_fts USING fts5(
+              description, payee, memo,
+              content='transactions', content_rowid='rowid'
+            );
+
+            CREATE TRIGGER txn_fts_ai AFTER INSERT ON transactions BEGIN
+              INSERT INTO transactions_fts(rowid, description, payee, memo)
+              VALUES (new.rowid, new.description, COALESCE(new.payee,''), COALESCE(new.memo,''));
+            END;
+            CREATE TRIGGER txn_fts_ad AFTER DELETE ON transactions BEGIN
+              INSERT INTO transactions_fts(transactions_fts, rowid, description, payee, memo)
+              VALUES ('delete', old.rowid, old.description, COALESCE(old.payee,''), COALESCE(old.memo,''));
+            END;
+            CREATE TRIGGER txn_fts_au AFTER UPDATE ON transactions BEGIN
+              INSERT INTO transactions_fts(transactions_fts, rowid, description, payee, memo)
+              VALUES ('delete', old.rowid, old.description, COALESCE(old.payee,''), COALESCE(old.memo,''));
+              INSERT INTO transactions_fts(rowid, description, payee, memo)
+              VALUES (new.rowid, new.description, COALESCE(new.payee,''), COALESCE(new.memo,''));
+            END;
+            """)
+        }
+
+        // ai_suggestions lands in a later migration with the AI (paid) feature.
         return migrator
     }
 }

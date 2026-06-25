@@ -112,6 +112,72 @@ public struct Store: Sendable {
         }
     }
 
+    // MARK: Transaction listing / search
+
+    public func transactions(_ q: TxnQuery) throws -> [TransactionRecord] {
+        var sql = "SELECT t.* FROM transactions t"
+        var conditions: [String] = []
+        var args: [DatabaseValueConvertible] = []
+
+        if let text = q.searchText, !text.isEmpty {
+            sql += " JOIN transactions_fts f ON f.rowid = t.rowid"
+            conditions.append("transactions_fts MATCH ?")
+            args.append(ftsQuery(text))
+        }
+        if let accountId = q.accountId { conditions.append("t.account_id = ?"); args.append(accountId) }
+        if let categoryId = q.categoryId { conditions.append("t.category_id = ?"); args.append(categoryId) }
+        if let from = q.from { conditions.append("t.posted_at >= ?"); args.append(from) }
+        if let to = q.to { conditions.append("t.posted_at <= ?"); args.append(to) }
+        if !q.includePending { conditions.append("t.pending = 0") }
+
+        if !conditions.isEmpty { sql += " WHERE " + conditions.joined(separator: " AND ") }
+        sql += " ORDER BY t.posted_at DESC LIMIT ?"
+        args.append(q.limit)
+
+        return try queue.read { try TransactionRecord.fetchAll($0, sql: sql, arguments: StatementArguments(args)) }
+    }
+
+    /// Turn free text into a safe FTS5 prefix query (each token + '*').
+    private func ftsQuery(_ text: String) -> String {
+        text.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map { "\($0)*" }
+            .joined(separator: " ")
+    }
+
+    // MARK: Transfers
+
+    public struct TransferCandidate: FetchableRecord, Decodable {
+        public var id: String
+        public var accountId: String
+        public var amountCents: Int64
+        public var postedAt: Int64?
+        enum CodingKeys: String, CodingKey {
+            case id
+            case accountId = "account_id"
+            case amountCents = "amount_cents"
+            case postedAt = "posted_at"
+        }
+    }
+
+    public func transferCandidates() throws -> [TransferCandidate] {
+        try queue.read { db in
+            try TransferCandidate.fetchAll(db, sql: """
+                SELECT id, account_id, amount_cents, posted_at
+                FROM transactions
+                WHERE is_transfer = 0 AND category_id IS NULL AND amount_cents <> 0
+                """)
+        }
+    }
+
+    public func markTransferPair(_ a: String, _ b: String, groupId: String, categoryId: String, now: Int64) throws {
+        try queue.write { db in
+            try db.execute(sql: """
+                UPDATE transactions SET is_transfer = 1, transfer_group_id = ?, category_id = ?,
+                  category_source = 'transfer', updated_at = ? WHERE id IN (?, ?)
+                """, arguments: [groupId, categoryId, now, a, b])
+        }
+    }
+
     // MARK: Rules / categories
 
     public func allRuleRecords() throws -> [RuleRecord] {

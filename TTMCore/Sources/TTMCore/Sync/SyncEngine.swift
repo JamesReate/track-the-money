@@ -44,6 +44,8 @@ public struct SyncEngine: Sendable {
                 failed += 1
             }
         }
+        // Best-effort transfer pairing across all accounts after upserts.
+        _ = try? Transfers.detect(store: store, now: now, transferCategoryId: "transfer")
         return SyncOutcome(connectionsSucceeded: succeeded, connectionsFailed: failed, newTransactions: newTxns)
     }
 

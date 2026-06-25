@@ -112,4 +112,15 @@ public final class LocalCore: CoreFacade {
         let total = lines.reduce(Money.zero) { $0 + $1.interest }
         return InterestRollup(total: total, byAccount: lines)
     }
+
+    // MARK: Transactions
+
+    public func transactions(_ query: TxnQuery) async throws -> [TransactionRecord] {
+        try store.transactions(query)
+    }
+
+    @discardableResult
+    public func detectTransfers() async throws -> Int {
+        try Transfers.detect(store: store, now: clock.now(), transferCategoryId: "transfer")
+    }
 }
