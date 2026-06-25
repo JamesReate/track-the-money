@@ -132,6 +132,52 @@ public struct Store: Sendable {
 
     // MARK: Net worth inputs
 
+    private struct SnapRow: FetchableRecord, Decodable {
+        var accountId: String
+        var accountClass: String
+        var balanceCents: Int64
+        var balanceDate: Int64
+        enum CodingKeys: String, CodingKey {
+            case accountId = "account_id"
+            case accountClass = "class"
+            case balanceCents = "balance_cents"
+            case balanceDate = "balance_date"
+        }
+    }
+
+    /// All snapshots joined to their account's class (excludes archived/excluded).
+    public func seriesSnapshots() throws -> [SeriesSnapshot] {
+        try queue.read { db in
+            try SnapRow.fetchAll(db, sql: """
+                SELECT s.account_id, a.class, s.balance_cents, s.balance_date
+                FROM balance_snapshots s
+                JOIN accounts a ON a.id = s.account_id
+                WHERE a.archived = 0 AND a.class <> 'excluded'
+                """)
+        }.map { row in
+            let cls = AccountClass(rawValue: row.accountClass) ?? .unclassified
+            return SeriesSnapshot(accountId: row.accountId, contribution: cls.contribution,
+                                  balanceCents: row.balanceCents, balanceDate: row.balanceDate)
+        }
+    }
+
+    private struct PropValRow: FetchableRecord, Decodable {
+        var propertyId: String
+        var valueCents: Int64
+        var asOf: Int64
+        enum CodingKeys: String, CodingKey {
+            case propertyId = "property_id"
+            case valueCents = "value_cents"
+            case asOf = "as_of"
+        }
+    }
+
+    public func seriesPropertyValues() throws -> [SeriesPropertyValue] {
+        try queue.read { db in
+            try PropValRow.fetchAll(db, sql: "SELECT property_id, value_cents, as_of FROM property_values")
+        }.map { SeriesPropertyValue(propertyId: $0.propertyId, valueCents: $0.valueCents, asOf: $0.asOf) }
+    }
+
     /// Latest value per property (max as_of), as cents.
     public func latestPropertyValuesCents() throws -> [Int64] {
         try queue.read { db in

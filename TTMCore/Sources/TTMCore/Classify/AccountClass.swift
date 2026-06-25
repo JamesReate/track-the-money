@@ -12,7 +12,7 @@ public enum AccountClass: String, Codable, CaseIterable, Sendable {
     case unclassified    // default until the user (or guesser) assigns
 
     /// Sign of this class's balance in the net-worth rollup.
-    public enum Contribution { case asset, liability, ignored }
+    public enum Contribution: Sendable { case asset, liability, ignored }
     public var contribution: Contribution {
         switch self {
         case .liquid, .investment, .realEstate: return .asset

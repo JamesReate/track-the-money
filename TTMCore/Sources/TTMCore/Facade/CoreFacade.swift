@@ -47,6 +47,7 @@ public protocol CoreFacade: Sendable {
 
     // Net worth
     func netWorthSummary() async throws -> NetWorthSummary
+    func netWorthSeries(from: UnixTime?, to: UnixTime?) async throws -> [NetWorthPoint]
 
     // Categorization
     func setCategory(transactionId: String, categoryId: String?) async throws

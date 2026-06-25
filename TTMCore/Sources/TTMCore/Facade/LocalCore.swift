@@ -75,6 +75,12 @@ public final class LocalCore: CoreFacade {
         return NetWorth.summary(accounts: balances, propertyValues: propertyValues, asOf: clock.now())
     }
 
+    public func netWorthSeries(from: UnixTime?, to: UnixTime?) async throws -> [NetWorthPoint] {
+        NetWorth.series(snapshots: try store.seriesSnapshots(),
+                        propertyValues: try store.seriesPropertyValues(),
+                        from: from, to: to)
+    }
+
     // MARK: Categorization
 
     public func setCategory(transactionId: String, categoryId: String?) async throws {
