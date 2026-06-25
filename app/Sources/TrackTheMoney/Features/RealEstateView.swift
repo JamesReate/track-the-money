@@ -21,7 +21,7 @@ struct RealEstateView: View {
                 }
             }
             .statementBackground()
-            .navigationTitle("Real Estate")
+            .inlineNavTitle("Real Estate")
             .toolbar { ToolbarItem(placement: .primaryAction) { Button { showAdd = true } label: { Image(systemName: "plus") } } }
             .overlay {
                 if model.properties.isEmpty {

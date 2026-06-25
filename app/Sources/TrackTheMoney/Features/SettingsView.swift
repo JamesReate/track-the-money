@@ -49,7 +49,7 @@ struct SettingsView: View {
                 }
             }
             .statementBackground()
-            .navigationTitle("Settings")
+            .inlineNavTitle("Settings")
         }
     }
 }

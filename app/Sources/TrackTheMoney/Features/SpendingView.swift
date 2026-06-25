@@ -41,7 +41,7 @@ struct SpendingView: View {
                 }
             }
             .statementBackground()
-            .navigationTitle("Spending")
+            .inlineNavTitle("Spending")
             .overlay {
                 if model.spending.isEmpty {
                     ContentUnavailableView("No spending yet", systemImage: "chart.bar",

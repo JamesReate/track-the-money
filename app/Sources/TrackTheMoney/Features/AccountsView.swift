@@ -8,28 +8,36 @@ struct AccountsView: View {
         NavigationStack {
             List {
                 ForEach(model.accounts) { account in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(account.name)
-                            Picker("Class", selection: classBinding(account)) {
-                                ForEach(AccountClass.allCases, id: \.self) { cls in
-                                    Text(label(cls)).tag(cls)
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(account.name).font(.system(size: 16, weight: .medium)).foregroundStyle(Brand.ink)
+                            Menu {
+                                Picker("Class", selection: classBinding(account)) {
+                                    ForEach(AccountClass.allCases, id: \.self) { cls in
+                                        Text(label(cls)).tag(cls)
+                                    }
                                 }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Circle().fill(dot(account.accountClass)).frame(width: 6, height: 6)
+                                    Text(label(account.accountClass).uppercased())
+                                        .font(.system(.caption2).weight(.semibold)).tracking(0.8)
+                                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+                                }
+                                .foregroundStyle(Brand.slate)
                             }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                            .font(.caption)
                         }
                         Spacer()
-                        MoneyText(account.balance, size: 16,
+                        MoneyText(account.balance, size: 17,
                                   color: account.accountClass.contribution == .liability ? Brand.clay : Brand.evergreen,
                                   currency: account.currency)
                     }
+                    .padding(.vertical, 4)
                     .listRowBackground(Brand.surface)
                 }
             }
             .statementBackground()
-            .navigationTitle("Accounts")
+            .inlineNavTitle("Accounts")
             .overlay { if model.accounts.isEmpty { ContentUnavailableView("No accounts", systemImage: "building.columns", description: Text("Add a SimpleFIN connection in Settings.")) } }
         }
     }
@@ -39,6 +47,14 @@ struct AccountsView: View {
             get: { account.accountClass },
             set: { newValue in Task { await model.setClass(accountId: account.id, to: newValue) } }
         )
+    }
+
+    private func dot(_ cls: AccountClass) -> Color {
+        switch cls.contribution {
+        case .asset: return Brand.evergreen
+        case .liability: return Brand.clay
+        case .ignored: return Brand.slate
+        }
     }
 
     private func label(_ cls: AccountClass) -> String {

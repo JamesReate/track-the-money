@@ -29,7 +29,7 @@ struct DebtInterestView: View {
                 }
             }
             .statementBackground()
-            .navigationTitle("Debt & Interest")
+            .inlineNavTitle("Debt & Interest")
         }
     }
 

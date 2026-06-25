@@ -27,7 +27,7 @@ struct RulesView: View {
                 }
             }
             .statementBackground()
-            .navigationTitle("Rules")
+            .inlineNavTitle("Rules")
             .overlay {
                 if model.rules.isEmpty {
                     ContentUnavailableView("No rules", systemImage: "slider.horizontal.3",

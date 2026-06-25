@@ -16,7 +16,7 @@ struct TransactionsView: View {
                 }
             }
             .statementBackground()
-            .navigationTitle("Transactions")
+            .inlineNavTitle("Transactions")
             .searchable(text: $query, prompt: "Search description or payee")
             .onChange(of: query) { _, newValue in Task { await model.search(newValue) } }
             .sheet(item: $selected) { txn in
