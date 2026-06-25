@@ -8,36 +8,36 @@
 
 ## 1. Two Tiers, Two Repos
 
+**The device owns the SimpleFIN sync in BOTH tiers.** The cloud is never a sync engine — it's a zero-knowledge encrypted relay that lets a household's devices share data. This is the key architectural fact:
+
 ```
-┌───────────────────────────── FREE / LOCAL-FIRST ─────────────────────────────┐
+┌──────────── FREE / LOCAL ─────────────────────────────────────────────────────┐
 │  JamesReate/track-the-money  (PUBLIC, this repo)                              │
 │                                                                              │
-│   SwiftUI app (iOS · iPadOS · macOS)                                         │
-│        │ depends on                                                          │
-│        ▼                                                                     │
-│   TTMCore  (pure Swift package — no UI deps)                                 │
-│     ├─ SimpleFIN client   ──HTTPS──▶ beta-bridge.simplefin.org               │
-│     ├─ Sync engine                                                           │
-│     ├─ Rules engine (deterministic)                                          │
-│     ├─ Net-worth / interest math                                             │
-│     ├─ Persistence (GRDB / SQLite)                                           │
-│     └─ Crypto (E2E for paid sync) + SyncClient (talks to backend)            │
-│                                                                              │
-│   Keychain ← SimpleFIN Access URL (never leaves device)                      │
-│   /contract/openapi.yaml ← source of truth for the backend wire protocol     │
-└──────────────────────────────────────┬───────────────────────────────────────┘
-                                        │ E2E-encrypted sync + AI (paid users only)
-┌───────────────────────────── PAID / CLOUD ───────────┴───────────────────────┐
-│  JamesReate/track-the-money-cloud  (PRIVATE)                                  │
-│   Go + Postgres                                                              │
-│     ├─ Sync relay (stores opaque ciphertext blobs)                           │
-│     ├─ AI service ──HTTPS──▶ Claude  (prompts + key, server-side only)       │
-│     ├─ Auth / accounts / device registration                                 │
-│     └─ Billing / entitlements                                                │
+│   SwiftUI app (iOS · iPadOS · macOS)  ── depends on ─▶  TTMCore (pure Swift)  │
+│     ├─ SimpleFIN client  ──HTTPS──▶ beta-bridge.simplefin.org                 │
+│     │      (DEVICE pulls directly — WEEKLY by default + manual "Sync now")    │
+│     ├─ Sync · Rules · Net-worth/Interest engines                             │
+│     └─ Persistence (GRDB / SQLite)                                            │
+│   Keychain ← SimpleFIN Access URL (never leaves device). No backend.          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────── PAID / CLOUD (zero-knowledge E2E relay) ──────────────────────────┐
+│  Same app + TTMCore. DEVICE still syncs SimpleFIN, then:                       │
+│     Crypto: seal records to household members' public keys (HPKE/CryptoKit)    │
+│        │ push ciphertext            ▲ pull ciphertext + decrypt locally        │
+│        ▼                            │                                          │
+│  JamesReate/track-the-money-cloud  (PRIVATE, Go + Postgres)                   │
+│     ├─ Encrypted-blob relay  (stores ciphertext only — NEVER decrypts)        │
+│     ├─ Public-key directory  (household members' pubkeys for E2E wrapping)     │
+│     ├─ AI proxy ──▶ Claude   (device sends minimal fields; nothing persisted)  │
+│     ├─ Auth / accounts / household membership / device registration           │
+│     └─ Billing / entitlements                                                 │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**The free app is complete on its own.** Everything in the public repo runs with no backend. The private repo is purely additive (sync, AI, multi-user) and is the open-core moat.
+**The free app is complete on its own** — no backend, weekly auto-sync (manual override), data on device.
+**The paid tier is also private:** the device syncs SimpleFIN, encrypts everything to the household's public keys, and pushes ciphertext. The server stores blobs it **cannot read** (zero-knowledge), so the Access URL and plaintext financials never reach it. The cloud adds **multi-device sync, multi-user, and AI** — not data access. Freshness tradeoff: data updates when one of the household's devices syncs (see §9).
 
 ---
 
@@ -49,8 +49,10 @@
 | Shared core | **Swift `TTMCore`**, pure module | Swift already covers both Apple platforms with no FFI. Kept UI-independent so Android/Windows can port it to **Rust/KMP at that milestone** — bounded, deferred cost. |
 | On-device store | **SQLite via GRDB** | Single-writer on device = SQLite's sweet spot. GRDB gives migrations, type-safe rows, change observation. |
 | Cloud store | **Postgres** (private repo) | Cloud tier is genuinely multi-tenant / multi-writer — opposite of the device case. |
-| AI | **Server-side, paid** | Prompts + Claude key stay private; free app is rules-only. |
-| Sync | **E2E-encrypted** | Server stores ciphertext only; protocol can be public (see `/contract`). |
+| AI | **Paid, via server proxy** | Prompts + Claude key stay private; free app is rules-only. Device sends only minimal fields; server persists nothing. |
+| SimpleFIN sync owner | **Device, in BOTH tiers** | `TTMCore` syncs on-device (weekly + manual). Server never calls SimpleFIN or holds the Access URL. |
+| Cloud trust model | **Zero-knowledge E2E relay** | Server stores only ciphertext sealed to users' public keys; it cannot read financial data. User owns the keys. |
+| Key custody | **iCloud Keychain + passphrase recovery** | Private key in Secure Enclave, synced across the user's Apple devices; Argon2id passphrase as recovery + future-Android path. |
 
 ### The Rust-core deferral (recorded)
 `TTMCore` is Swift today. The Rust payoff is *only* for Android/Windows (secondary, later) and a Rust backend (we use Go) — while its FFI cost would be paid now on the primary Apple platforms. **Revisit trigger:** when Android is scheduled, port `TTMCore`'s pure domain logic to a Rust crate (UniFFI → Swift/Kotlin bindings) or Kotlin Multiplatform. The "no SwiftUI/UIKit in `TTMCore`" rule below is what keeps that port bounded.
@@ -224,7 +226,9 @@ CREATE TABLE settings ( key TEXT PRIMARY KEY, value TEXT NOT NULL ) STRICT;
 
 ## 6. Sync Engine (`TTMCore/Sync`)
 
-Runs on-device. Trigger: manual ("Sync now") + scheduled (iOS `BGAppRefreshTask` / macOS timer).
+The engine runs **on-device in both tiers** (the server never calls SimpleFIN). Cadence: **weekly by default** (`sync_cadence` setting, default `weekly`) via iOS `BGAppRefreshTask` / macOS timer, plus a manual **"Sync now"** override anytime. Conservative cadence respects SimpleFIN rate limits and matches how slowly balances actually move.
+
+In the **paid tier**, after a local sync completes, the device additionally **encrypts the changed records to the household's public keys and pushes them to the relay** (§9); other household devices pull and decrypt on their next refresh. So "freshness" is a function of *any* household device syncing — not a server cron.
 
 **Per connection, per run:**
 1. Read Access URL from Keychain (via injected `SecretStore`).
@@ -235,7 +239,7 @@ Runs on-device. Trigger: manual ("Sync now") + scheduled (iOS `BGAppRefreshTask`
    - existing → update amount/description/pending (handles **pending→posted**, stable id); never clobber a `manual` category.
 5. Record `last_synced_at`; on failure set `status` + `last_error`. **One failing connection never blocks others.** Surface `errlist` to UI.
 
-**Idempotency:** unique constraints on `(account_id, sfin_txn_id)` and `(account_id, balance_date)`; per-connection writes in one GRDB transaction.
+**Idempotency:** unique constraints on `(account_id, sfin_txn_id)` and `(account_id, balance_date)`; per-connection writes in one GRDB transaction. Because the server never reimplements this, the engine lives in one place (`TTMCore`) — the only future port is the Rust one in §13.
 
 ---
 
@@ -279,14 +283,23 @@ txn ──▶ Rules.match(txn)
 
 ## 9. Cloud Backend (private repo — contract-level view)
 
-Implemented in **`JamesReate/track-the-money-cloud`** (Go + Postgres). The public repo only contains the **contract** (`/contract/openapi.yaml`) and the device-side `SyncClient`. Backend responsibilities:
+Implemented in **`JamesReate/track-the-money-cloud`** (Go + Postgres). The public repo contains the **contract** (`/contract/openapi.yaml`) and the device-side `SyncClient`/`Crypto`. The backend is a **zero-knowledge encrypted relay** — it never calls SimpleFIN, never holds the Access URL, and never decrypts user data. Its jobs are: store-and-forward ciphertext, coordinate household keys, proxy AI, and handle accounts/billing.
 
-- **Sync relay:** `POST /v1/sync/push`, `GET /v1/sync/pull`. Stores `EncryptedRecord` blobs keyed by `(user, type, id)`; resolves by `updated_at`. **Server never decrypts** — it sees ciphertext + minimal routing metadata only.
-- **AI service:** `POST /v1/ai/categorize`. Holds the Claude key + prompts + eval; batches; enforces the privacy field-set server-side.
-- **Auth/accounts/devices:** `POST /v1/auth/login`, device registration, multi-user household membership.
+**What syncs (everything; resolved by `updated_at`):** all device state — accounts, balances, transactions, balance_snapshots, categories, rules, classifications, properties, payment_splits, settings — is sealed on-device and pushed as **`EncryptedRecord`** blobs. The server sees record `id`, `type`, household, and `updated_at` for routing/merge, plus opaque ciphertext.
+
+**Backend responsibilities:**
+- **Encrypted-blob relay:** `POST /v1/sync/push` (this device's sealed changes), `GET /v1/sync/pull?since=` (other household devices' sealed changes). Last-writer-wins by `updated_at` on the envelope; no plaintext needed to merge.
+- **Public-key directory:** `POST /v1/keys` (publish this device/member's public key), `GET /v1/household/keys` (fetch all current members' public keys). Devices wrap each record's data key to **every** member's public key (group E2E). Member join/leave ⇒ re-wrap affected keys client-side.
+- **AI proxy:** `POST /v1/ai/categorize`. The **device** (which has plaintext) sends only the minimal field-set (description/payee/amount + category list); the server calls **Claude**, returns suggestions, and **persists nothing**. Claude key + prompts stay server-side.
+- **Auth/accounts/devices:** `POST /v1/auth/login`, device registration, household membership.
 - **Billing:** subscription entitlement gating for sync + AI.
 
-**E2E crypto (`TTMCore/Crypto`):** each syncable record is AES-GCM encrypted on-device with a key derived from the user's passphrase (never sent to the server). Losing the passphrase = unrecoverable cloud data (documented; the local copy is unaffected). This is what lets the protocol be public.
+**Crypto (`TTMCore/Crypto`):**
+- **Per-record data key** (AES-256-GCM) generated on-device; the data key is **HPKE-sealed to each household member's public key** (Apple **CryptoKit**, Curve25519). The server stores ciphertext + wrapped keys; it holds **no** private key, so it cannot read anything.
+- **Private key custody:** in the device Keychain (Secure Enclave), **synced across the user's Apple devices via iCloud Keychain**. An **Argon2id passphrase-derived key** is the recovery path (and the future-Android path). Losing both passphrase *and* all devices ⇒ cloud data is unrecoverable by design (the local copy on any surviving device is unaffected).
+- **Access URL never leaves the device.** Optionally it can be sealed to the user's *own* other devices (via the same relay) so any of them can refresh; other household members consume synced financial records and never receive the raw bank credential.
+
+**Freshness model:** there is no server cron. Data is as fresh as the most recent sync by *any* household device (weekly background + manual). This is the deliberate cost of true zero-knowledge — accepted in exchange for the privacy guarantee.
 
 ---
 
@@ -317,9 +330,10 @@ TrackTheMoney/ (Xcode app target; depends on TTMCore)
 
 ## 11. Security
 
-- **Access URL** in Keychain, device-only; never synced, never sent to backend or AI.
-- **Cloud sync** is E2E-encrypted; the server is zero-knowledge of financial data.
-- **AI egress** minimized + server-enforced field allow-list; only for paid users.
+- **Access URL** in Keychain, device-only in **both** tiers; never sent to the backend or AI. (Optionally sealed to the user's *own* other devices for refresh.)
+- **Cloud tier is zero-knowledge:** the relay stores only ciphertext sealed (HPKE/CryptoKit) to household members' public keys. The server holds **no** private key and cannot read financial data — free *or* paid, we can't see it.
+- **Key custody:** private key in Secure Enclave + iCloud Keychain across the user's Apple devices; Argon2id passphrase as recovery. No key escrow on the server.
+- **AI egress** (device → server → Claude) minimized to a field allow-list (description/payee/amount); server persists nothing; paid users only.
 - **TLS** everywhere; certificate handling standard for Apple platforms.
 - **Public-repo hygiene:** no secrets, prompts, or keys in the open app — those live in the private backend. (Recommend a secret-scanning pre-commit/CI guard.)
 
@@ -398,19 +412,19 @@ Keep the boundary **coarse-grained** — pass whole operations and DTOs, not cha
 
 - **Cost:** a Rust crate + UniFFI build pipeline (CI matrix for XCFramework + Android `.so`), and re-implementing tested logic against golden vectors. Bounded because the logic is already specified, isolated, and test-covered.
 - **De-risked by doing now:** (a) the no-UI-deps rule in `TTMCore`, (b) the `CoreFacade` choke-point so UI call sites are stable, (c) the core-owns-DB rule, (d) keeping the SQL schema/migrations as plain SQL (not Swift-DSL-only) so they move verbatim, (e) the `CoreObserver` change-signal abstraction instead of leaning on GRDB observation.
-- **Crypto note:** standardize on algorithms with first-class Rust crates now (AES-GCM via `aes-gcm`/`ring`, HKDF) so E2E records encrypted by the Swift build decrypt identically in the Rust build — cloud data survives the port.
+- **Crypto note:** standardize on algorithms with first-class crates on **both** sides now — AES-256-GCM (`aes-gcm`/`ring`), HKDF, and **HPKE over X25519** (Apple CryptoKit ↔ Rust `hpke`/`rust-hpke`). Records sealed by the Swift build must unseal identically in the Rust build, so cloud data + the household key directory survive the port.
 
 ---
 
 ## 14. Resolved vs Open
 
-**Resolved:** product shape (local-first freemium), frontend (SwiftUI), core (Swift `TTMCore`, Rust-deferred), device store (GRDB/SQLite), cloud store (Postgres, private), AI placement (paid/server), sync model (E2E-encrypted, public contract), repo boundary, money (Int64 cents), idempotency keys, no-double-count net worth.
+**Resolved:** product shape (local-first freemium), frontend (SwiftUI), core (Swift `TTMCore`, Rust-deferred), device store (GRDB/SQLite), cloud store (Postgres, private), AI placement (paid; device→server proxy), **device-owns-SimpleFIN-sync in both tiers**, **cloud = zero-knowledge E2E relay** (HPKE/CryptoKit, user-owned keys, iCloud-Keychain custody), repo boundary, money (Int64 cents), idempotency keys, no-double-count net worth.
 
 **Open (validate during build):**
-- SimpleFIN Bridge **rate limits** → sync cadence + overlap defaults.
+- SimpleFIN Bridge **rate limits** → sync cadence + overlap defaults (weekly default is the starting point).
 - **Default backfill depth** on first sync (institution-dependent).
-- Cloud sync **conflict resolution** detail (last-writer-wins vs per-field merge) — `updated_at` cursor is the starting point.
+- Sync **conflict resolution** detail (LWW by `updated_at` vs per-field merge) — relevant once two household devices edit metadata offline.
+- **Group-E2E key rotation:** member join/leave re-wrap flow, and whether to share an Access URL across a user's own devices.
 - **AI monthly cost ceiling** per paid user + optional high-confidence auto-apply.
 - Multi-currency: schema is ready (`currency` columns); conversion/display deferred.
 - Pricing: the actual "low yearly fee" number and any device/seat limits.
-```

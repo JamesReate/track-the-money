@@ -1,62 +1,66 @@
 openapi: 3.1.0
 info:
   title: Track The Money — Sync & AI Contract
-  version: 0.1.0
+  version: 0.3.0
   description: >
-    Wire contract between the on-device app (free, local-first) and the cloud
-    backend (paid tier). Sync records are END-TO-END ENCRYPTED: the server stores
-    and relays opaque ciphertext and never holds decryption keys. Free users do
-    not call these endpoints.
+    Wire contract between the on-device app and the PAID cloud backend.
+
+    Model: ZERO-KNOWLEDGE ENCRYPTED RELAY. The DEVICE syncs SimpleFIN (both
+    tiers) and seals every record to the household members' public keys
+    (HPKE/CryptoKit) before pushing. The server stores only ciphertext + routing
+    metadata (id, type, household, updated_at); it holds no private key and
+    cannot read financial data. It also hosts a household public-key directory
+    and proxies AI. Free/local users never call these endpoints.
+
+    Because the protocol carries only ciphertext, publishing it weakens nothing.
 servers:
   - url: https://api.trackthe.money
 
 components:
   securitySchemes:
-    bearer:
-      type: http
-      scheme: bearer
+    bearer: { type: http, scheme: bearer }
   schemas:
     EncryptedRecord:
       type: object
-      description: One sync record. Server treats `ciphertext` as opaque.
-      required: [id, type, ciphertext, nonce, updated_at]
+      description: One sealed device record. Server treats `ciphertext` as opaque.
+      required: [id, type, ciphertext, wrapped_keys, updated_at]
       properties:
-        id:         { type: string, description: client-generated uuid }
-        type:       { type: string, enum: [account, transaction, rule, category, property, setting] }
-        ciphertext: { type: string, format: byte, description: AES-GCM payload, encrypted on device }
-        nonce:      { type: string, format: byte }
-        updated_at: { type: integer, description: unix seconds (lamport-ish for conflict resolution) }
+        id:         { type: string, description: client-generated uuid (stable across edits) }
+        type:       { type: string, enum: [account, transaction, balance_snapshot, category, rule, account_meta, property, property_value, property_debt, payment_split, setting] }
+        ciphertext: { type: string, format: byte, description: AES-256-GCM payload, sealed on device }
+        wrapped_keys:
+          type: array
+          description: the per-record data key, HPKE-wrapped once per household member public key
+          items:
+            type: object
+            properties:
+              key_id:  { type: string, description: member/device public-key id }
+              wrapped: { type: string, format: byte }
+        updated_at: { type: integer, description: unix seconds — last-writer-wins cursor }
         deleted:    { type: boolean, default: false }
-    PushRequest:
+    PublicKey:
       type: object
       properties:
-        device_id: { type: string }
-        since:     { type: integer, description: last sync cursor }
-        records:   { type: array, items: { $ref: '#/components/schemas/EncryptedRecord' } }
-    PullResponse:
-      type: object
-      properties:
-        cursor:  { type: integer }
-        records: { type: array, items: { $ref: '#/components/schemas/EncryptedRecord' } }
+        key_id:     { type: string }
+        member_id:  { type: string }
+        algo:       { type: string, default: x25519-hpke }
+        public_key: { type: string, format: byte }
     AICategorizeRequest:
       type: object
       description: >
-        Minimal, privacy-bounded payload — descriptions/payees/amounts only.
-        NEVER account numbers, balances, or SimpleFIN credentials.
+        Sent by the DEVICE (which holds plaintext) — minimal fields only.
+        Server forwards to Claude and persists nothing. NEVER account numbers/balances.
       properties:
         items:
           type: array
           items:
             type: object
             properties:
-              client_txn_id: { type: string }
-              description:    { type: string }
-              payee:         { type: string }
-              amount_cents:  { type: integer }
-              currency:      { type: string }
-        categories:
-          type: array
-          items: { type: string }
+              txn_id:       { type: string }
+              description:  { type: string }
+              payee:        { type: string }
+              amount_cents: { type: integer }
+        categories: { type: array, items: { type: string } }
     AICategorizeResponse:
       type: object
       properties:
@@ -65,11 +69,11 @@ components:
           items:
             type: object
             properties:
-              client_txn_id: { type: string }
-              category:      { type: string }
-              confidence:    { type: number }
+              txn_id:         { type: string }
+              category:       { type: string }
+              confidence:     { type: number }
               suggested_rule: { type: object, nullable: true }
-              rationale:     { type: string }
+              rationale:      { type: string }
 
 security:
   - bearer: []
@@ -79,27 +83,57 @@ paths:
     post:
       summary: Sign in (paid account) and register device
       security: []
-      responses: { '200': { description: token + device_id } }
+      responses: { '200': { description: token + device_id + household_id } }
+
+  /v1/keys:
+    post:
+      summary: Publish this device/member public key to the household directory
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/PublicKey' } } }
+      responses: { '201': { description: key registered } }
+
+  /v1/household/keys:
+    get:
+      summary: Fetch all current household members' public keys (to wrap data keys to)
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PublicKey' }
 
   /v1/sync/push:
     post:
-      summary: Upload encrypted records changed on this device
+      summary: Push this device's sealed record changes
       requestBody:
-        content: { application/json: { schema: { $ref: '#/components/schemas/PushRequest' } } }
-      responses: { '200': { description: accepted, returns new cursor } }
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                device_id: { type: string }
+                records:   { type: array, items: { $ref: '#/components/schemas/EncryptedRecord' } }
+      responses: { '200': { description: accepted; returns new cursor } }
 
   /v1/sync/pull:
     get:
-      summary: Download encrypted records changed since cursor
+      summary: Pull other household devices' sealed changes since cursor
       parameters:
         - { in: query, name: since, schema: { type: integer } }
       responses:
         '200':
-          content: { application/json: { schema: { $ref: '#/components/schemas/PullResponse' } } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cursor:  { type: integer }
+                  records: { type: array, items: { $ref: '#/components/schemas/EncryptedRecord' } }
 
   /v1/ai/categorize:
     post:
-      summary: Suggest categories for uncategorized transactions (paid)
+      summary: Suggest categories for uncategorized transactions (paid; device-initiated)
       requestBody:
         content: { application/json: { schema: { $ref: '#/components/schemas/AICategorizeRequest' } } }
       responses:

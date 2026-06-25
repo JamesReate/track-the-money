@@ -24,13 +24,15 @@
 
 **Free (local-first, open source, app stores):**
 - Runs entirely on-device. SimpleFIN sync, deterministic rules, categorization, net worth, real estate, interest tracking — all local.
-- Access URL stored in OS secure storage (Keychain). No account, no server, **no cost to operate**.
+- **Device syncs SimpleFIN: weekly by default + manual "Sync now".** Access URL in Keychain. No account, no server, **no cost to operate**.
 - Platforms: iOS primary, macOS primary (Android/Windows later).
 
 **Paid (low yearly fee):**
+- **The device still does the SimpleFIN sync** (same as free); the cloud is a **zero-knowledge encrypted relay**, not a sync engine.
 - **Cloud sync** across devices + **multi-user** (family members on their own devices).
-- **AI auto-categorization** (server-side Claude) for transactions rules didn't match.
-- **End-to-end encrypted:** the backend stores opaque ciphertext and cannot read user financial data — a core selling point.
+- **AI auto-categorization** for transactions rules didn't match — the device sends only minimal fields to a server AI proxy; nothing is persisted.
+- **Zero-knowledge & user-owned keys:** records are sealed on-device (HPKE/CryptoKit) to the household's public keys; the backend stores ciphertext it **cannot read**. Private keys live in iCloud Keychain with a passphrase recovery — *we can't see your data, free or paid.*
+- **Freshness tradeoff:** data is as current as the most recent sync by any of the household's devices (no server cron) — the deliberate cost of true zero-knowledge.
 
 The free/paid line *is* the public/private repo line (see [TECH_DESIGN.md](TECH_DESIGN.md) §Repo Boundary).
 
