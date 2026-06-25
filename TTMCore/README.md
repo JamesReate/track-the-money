@@ -22,9 +22,12 @@ the engines unit-testable and the future Rust port bounded (see
 | `Sync` | ✅ real | on-device sync engine — idempotent upsert, snapshots, reconcile |
 | `Classify/Categorizer` | ✅ real | rules pipeline at sync time + backfill/rerun |
 | `Facade` | ✅ contract + impl | `CoreFacade` + `LocalCore` (free on-device implementation) |
-| `Interest` | ⬜ stub | detection patterns + rollups (TODO M1.7) |
-| `Crypto` | ⬜ stub | HPKE/CryptoKit record sealing for paid relay (TODO M2.9) |
-| `SyncClient` | ⬜ stub | device-side client for the zero-knowledge relay (TODO M2.9+) |
+| `Interest` | ✅ real | detection rule + payment splits + debt-cost rollups |
+| `NetWorth` series | ✅ real | over-time reconstruction from balance_snapshots |
+| `Transactions` | ✅ real | `TxnQuery` listing + FTS5 search + transfer detection |
+| `Property` | ✅ real | properties, value history, linked-debt equity |
+| `Crypto` | ⬜ stub | HPKE/CryptoKit record sealing for paid relay (TODO M2) |
+| `SyncClient` | ⬜ stub | device-side client for the zero-knowledge relay (TODO M2) |
 
 ## Build & test
 

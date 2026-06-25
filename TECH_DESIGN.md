@@ -341,15 +341,15 @@ TrackTheMoney/ (Xcode app target; depends on TTMCore)
 
 ## 12. Build Order
 
-**Milestone 1 — Free on-device app (public repo):**
-1. `TTMCore` skeleton + GRDB schema/migrations + Money/Time + DI protocols.
-2. SimpleFIN client (claim flow, v1/v2 decode) + Keychain Access URL storage.
-3. Sync engine (idempotent upsert, snapshots, pending reconcile, error surfacing).
-4. Classification + net worth (latest + over-time) + Accounts/NetWorth SwiftUI.
-5. Properties (value history, debt links, equity) + RealEstate view.
-6. Categories + rules engine (forward/backfill/rerun) + Transactions/Rules views.
-7. Interest detection + payment splits + DebtInterest view.
-8. Polish: FTS search, transfer detection, local export, scheduled refresh.
+**Milestone 1 — Free on-device app (public repo):**  _(core logic ✅ done & tested; SwiftUI screens ⏭️ next — see IMPLEMENTATION_STATUS.md)_
+1. ✅ `TTMCore` skeleton + GRDB schema/migrations + Money/Time + DI protocols.
+2. ✅ SimpleFIN client (claim flow, v1/v2 decode) + Keychain Access URL storage.
+3. ✅ Sync engine (idempotent upsert, snapshots, pending reconcile, error surfacing).
+4. ✅ Classification + net worth (latest + over-time). ⏭️ Accounts/NetWorth SwiftUI.
+5. ✅ Properties (value history, debt links, equity). ⏭️ RealEstate view.
+6. ✅ Categories + rules engine (forward/backfill/rerun). ⏭️ Transactions/Rules views.
+7. ✅ Interest detection + payment splits + rollups. ⏭️ DebtInterest view.
+8. ✅ FTS search + transfer detection. ⏭️ Local export, scheduled refresh, SwiftUI wiring.
 
 **Milestone 2 — Paid cloud (private repo + device glue):**
 9. Backend sync relay (Postgres, E2E blobs) + `SyncClient` + `Crypto`.
