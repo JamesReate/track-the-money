@@ -78,7 +78,7 @@ public struct BalanceSnapshotRecord: Codable, FetchableRecord, MutablePersistabl
     }
 }
 
-public struct TransactionRecord: Codable, FetchableRecord, PersistableRecord {
+public struct TransactionRecord: Codable, FetchableRecord, PersistableRecord, Identifiable {
     public static let databaseTableName = "transactions"
     public var id: String
     public var accountId: String

@@ -15,6 +15,9 @@ public final class AppModel {
     public var recentTransactions: [TransactionRecord] = []
     public var properties: [PropertySummary] = []
     public var interest: InterestRollup?
+    public var categories: [CategorySummary] = []
+    public var rules: [Rule] = []
+    public var spending: [SpendingLine] = []
     public var statusMessage = ""
     public var isSyncing = false
 
@@ -36,10 +39,68 @@ public final class AppModel {
             recentTransactions = try await core.transactions(TxnQuery(limit: 50))
             properties = try await core.properties()
             interest = try await core.interestSummary(from: 0, to: 4_102_444_800) // through ~2100
+            categories = try await core.categories()
+            rules = try await core.rules()
+            spending = try await core.spending(from: 0, to: 4_102_444_800)
         } catch {
             statusMessage = "Load failed: \(error)"
         }
     }
+
+    public func categoryName(_ id: String?) -> String {
+        guard let id else { return "Uncategorized" }
+        return categories.first { $0.id == id }?.name ?? id
+    }
+
+    // MARK: Categorization actions
+
+    public func setCategory(transactionId: String, categoryId: String?) async {
+        try? await core.setCategory(transactionId: transactionId, categoryId: categoryId)
+        await refresh()
+    }
+
+    /// Build a "description contains <payee>" rule → category, apply to past + future.
+    public func createRule(fromText text: String, categoryId: String) async {
+        let id = "rule-\(UUID().uuidString.prefix(8))"
+        let rule = Rule(id: id, name: text, categoryId: categoryId, priority: 100, enabled: true,
+                        condition: Condition(op: .and, clauses: [
+                            Clause(field: .description, match: .contains, value: text)
+                        ]))
+        try? await core.upsertRule(rule, apply: .backfill)
+        await refresh()
+    }
+
+    public func toggleRule(_ rule: Rule) async {
+        let updated = Rule(id: rule.id, name: rule.name, categoryId: rule.categoryId,
+                           priority: rule.priority, enabled: !rule.enabled, condition: rule.condition)
+        try? await core.upsertRule(updated, apply: .forwardOnly)
+        await refresh()
+    }
+
+    public func deleteRule(_ id: String) async {
+        try? await core.deleteRule(id: id)
+        await refresh()
+    }
+
+    // MARK: Real estate actions
+
+    public func addProperty(name: String, value: Money) async {
+        guard let id = try? await core.addProperty(name: name, kind: "real_estate") else { return }
+        try? await core.addPropertyValue(propertyId: id, value: value, asOf: nowUnix(), note: nil)
+        await refresh()
+    }
+
+    public func addPropertyValue(propertyId: String, value: Money) async {
+        try? await core.addPropertyValue(propertyId: propertyId, value: value, asOf: nowUnix(), note: nil)
+        await refresh()
+    }
+
+    public func linkDebt(propertyId: String, accountId: String) async {
+        try? await core.linkPropertyDebt(propertyId: propertyId, accountId: accountId, role: "mortgage")
+        await refresh()
+    }
+
+    private func nowUnix() -> UnixTime { Int64(Date().timeIntervalSince1970) }
 
     public func search(_ text: String) async {
         let query = text.isEmpty ? TxnQuery(limit: 50) : TxnQuery(searchText: text, limit: 100)

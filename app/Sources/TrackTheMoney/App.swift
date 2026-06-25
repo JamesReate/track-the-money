@@ -29,6 +29,12 @@ struct RootView: View {
                 .tabItem { Label("Accounts", systemImage: "building.columns") }
             TransactionsView(model: model)
                 .tabItem { Label("Transactions", systemImage: "list.bullet") }
+            SpendingView(model: model)
+                .tabItem { Label("Spending", systemImage: "chart.bar") }
+            RulesView(model: model)
+                .tabItem { Label("Rules", systemImage: "slider.horizontal.3") }
+            RealEstateView(model: model)
+                .tabItem { Label("Real Estate", systemImage: "house") }
             DebtInterestView(model: model)
                 .tabItem { Label("Debt", systemImage: "creditcard") }
             SettingsView(model: model)
