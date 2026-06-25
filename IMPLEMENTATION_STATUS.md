@@ -33,21 +33,26 @@ Swift 6.3 toolchain.
   equity; corrected `realEstateEquity` in net worth.
 - ✅ **LocalCore** — the free-tier `CoreFacade` implementation wiring all of the
   above (+ `accounts()`/`setAccountClass()` and `AccountSummary`).
-- ✅ **SwiftUI app** (`app/`, SPM package, builds on macOS) — `AppModel`
-  (`@Observable` over `CoreFacade`) + screens: Net Worth (Swift Charts
-  over-time), Accounts (class picker), Transactions (FTS search), Debt &
-  Interest, Settings (claim token + sync).
+- ✅ **SwiftUI app** (`app/`, SPM package) — `AppModel` (`@Observable` over
+  `CoreFacade`) + screens: **Net Worth** (Swift Charts over-time), **Accounts**
+  (class picker), **Transactions** (FTS search + tap→categorize / create-rule),
+  **Spending** (by-category bar chart), **Rules** (toggle/delete), **Real
+  Estate** (value/debt/equity, add property + value, link debt), **Debt &
+  Interest**, **Settings** (claim token + sync).
+- ✅ **Xcode project** — `project.yml` (XcodeGen) → single **multiplatform** app
+  target (iOS + iPadOS + macOS) linking `TTMCore`. Verified: **macOS and iOS
+  Simulator builds both succeed**. See [BUILD.md](BUILD.md). (`.xcodeproj`
+  gitignored; `xcodegen generate` to recreate. Set your Team in Xcode to run on
+  device.)
 
 ### Next up (resume here)
-1. ⏭️ **More screens:** Rules editor + "create rule from transaction", per-txn
-   manual categorize, Real Estate (properties/value/debt links), Spending
-   breakdown by category/period, Categories CRUD.
-2. Scheduled background refresh (`BGAppRefreshTask` iOS / timer macOS) + sync
-   status surfacing per connection (needs_auth/error).
+1. ⏭️ Scheduled background refresh (`BGAppRefreshTask` iOS / timer macOS) +
+   per-connection sync status surfacing (needs_auth/error) in Settings.
+2. Categories CRUD UI; rule priority editing; "apply mode" choice on rule create.
 3. Local CSV/JSON export.
-4. **Generate the iOS Xcode app** (App Store target) importing the `app` +
-   `TTMCore` packages — the SwiftUI builds today only as a macOS SPM executable.
-5. AI review-queue UI scaffolding (paid; backend not built yet).
+4. Run live on Simulator/device with a real SimpleFIN token; fix runtime issues.
+5. **Milestone 2** — paid cloud (`track-the-money-cloud`): Go relay + AI proxy +
+   auth/billing; device-side `Crypto` (HPKE/CryptoKit) + `SyncClient`.
 
 ## Milestone 2 — Paid cloud (private repo `track-the-money-cloud`)
 Not started. Zero-knowledge encrypted relay (Go + Postgres): sync relay, public
