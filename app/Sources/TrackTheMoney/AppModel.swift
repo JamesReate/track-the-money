@@ -119,6 +119,11 @@ public final class AppModel {
         }
     }
 
+    public func loadSampleData() async {
+        do { try await core.loadSampleData(); statusMessage = "Sample data loaded"; await refresh() }
+        catch { statusMessage = "Sample load failed: \(error)" }
+    }
+
     public func claim(token: String) async {
         do {
             try await core.claimSetupToken(token)

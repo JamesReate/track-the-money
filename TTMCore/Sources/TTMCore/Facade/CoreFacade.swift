@@ -115,6 +115,7 @@ public protocol CoreFacade: Sendable {
     // Connections / sync
     func claimSetupToken(_ token: String) async throws
     func syncNow() async throws -> SyncOutcome
+    func loadSampleData() async throws   // demo content; no network
 
     // Accounts
     func accounts() async throws -> [AccountSummary]

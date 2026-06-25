@@ -12,8 +12,10 @@ struct TransactionsView: View {
                 ForEach(model.recentTransactions, id: \.id) { txn in
                     Button { selected = txn } label: { row(txn) }
                         .buttonStyle(.plain)
+                        .listRowBackground(Brand.surface)
                 }
             }
+            .statementBackground()
             .navigationTitle("Transactions")
             .searchable(text: $query, prompt: "Search description or payee")
             .onChange(of: query) { _, newValue in Task { await model.search(newValue) } }
@@ -39,9 +41,8 @@ struct TransactionsView: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
-            Text(Money(cents: txn.amountCents).formatted())
-                .monospacedDigit()
-                .foregroundStyle(txn.amountCents < 0 ? Color.primary : Color.green)
+            MoneyText(Money(cents: txn.amountCents), size: 16,
+                      color: txn.amountCents < 0 ? Brand.ink : Brand.evergreen)
         }
         .contentShape(Rectangle())
     }

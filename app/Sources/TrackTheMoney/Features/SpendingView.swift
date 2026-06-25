@@ -17,25 +17,30 @@ struct SpendingView: View {
                         Chart(model.spending.prefix(8)) { line in
                             BarMark(x: .value("Amount", Double(line.amount.cents) / 100),
                                     y: .value("Category", line.categoryName))
+                            .foregroundStyle(Brand.clay)
                         }
                         .frame(height: 240)
+                        .listRowBackground(Brand.surface)
                     }
-                    Section("By category") {
+                    Section {
                         ForEach(model.spending) { line in
                             HStack {
                                 Text(line.categoryName)
                                 Spacer()
-                                Text(line.amount.formatted()).monospacedDigit().foregroundStyle(.secondary)
+                                MoneyText(line.amount, size: 16, color: Brand.clay)
                             }
+                            .listRowBackground(Brand.surface)
                         }
                         HStack {
                             Text("Total").fontWeight(.semibold)
                             Spacer()
-                            Text(total.formatted()).monospacedDigit().fontWeight(.semibold)
+                            MoneyText(total, size: 16, color: Brand.clay)
                         }
-                    }
+                        .listRowBackground(Brand.surface)
+                    } header: { Eyebrow("By category") }
                 }
             }
+            .statementBackground()
             .navigationTitle("Spending")
             .overlay {
                 if model.spending.isEmpty {

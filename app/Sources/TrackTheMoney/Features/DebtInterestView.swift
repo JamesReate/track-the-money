@@ -8,25 +8,27 @@ struct DebtInterestView: View {
         NavigationStack {
             List {
                 if let nw = model.netWorth {
-                    Section("Debt") {
+                    Section {
                         row("Secured", nw.securedDebt)
                         row("Unsecured", nw.unsecuredDebt)
                         row("Total", nw.securedDebt + nw.unsecuredDebt, emphasize: true)
-                    }
+                    } header: { Eyebrow("Debt") }
                 }
                 if let interest = model.interest, !interest.byAccount.isEmpty {
-                    Section("Interest paid") {
+                    Section {
                         ForEach(interest.byAccount, id: \.accountId) { line in
                             row(line.accountName, line.interest)
                         }
                         row("Total", interest.total, emphasize: true)
-                    }
+                    } header: { Eyebrow("Interest paid") }
                 } else {
-                    Section("Interest paid") {
-                        Text("No interest charges categorized yet.").foregroundStyle(.secondary)
-                    }
+                    Section {
+                        Text("No interest charges categorized yet.").foregroundStyle(Brand.slate)
+                            .listRowBackground(Brand.surface)
+                    } header: { Eyebrow("Interest paid") }
                 }
             }
+            .statementBackground()
             .navigationTitle("Debt & Interest")
         }
     }
@@ -35,9 +37,9 @@ struct DebtInterestView: View {
         HStack {
             Text(label).fontWeight(emphasize ? .semibold : .regular)
             Spacer()
-            Text(amount.formatted()).monospacedDigit()
+            MoneyText(amount, size: 16, color: Brand.clay)
                 .fontWeight(emphasize ? .semibold : .regular)
-                .foregroundStyle(.red)
         }
+        .listRowBackground(Brand.surface)
     }
 }

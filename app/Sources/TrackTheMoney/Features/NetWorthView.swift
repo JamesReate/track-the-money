@@ -1,5 +1,4 @@
 import SwiftUI
-import Charts
 import TTMCore
 
 struct NetWorthView: View {
@@ -7,52 +6,79 @@ struct NetWorthView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                if let nw = model.netWorth {
-                    Section {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Net Worth").font(.subheadline).foregroundStyle(.secondary)
-                            Text(nw.netWorth.formatted())
-                                .font(.system(size: 38, weight: .bold, design: .rounded))
-                                .foregroundStyle(nw.netWorth.cents >= 0 ? Color.primary : Color.red)
-                        }.padding(.vertical, 6)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    if let nw = model.netWorth {
+                        masthead(nw)
+                        composition(nw)
+                        breakdown(nw)
+                    } else {
+                        ProgressView("Loading…").padding(.top, 80)
                     }
-                    if model.series.count > 1 {
-                        Section("Over time") { chart }
-                    }
-                    Section("Assets") {
-                        row("Liquid", nw.liquid)
-                        row("Investments", nw.investments)
-                        row("Real estate equity", nw.realEstateEquity)
-                    }
-                    Section("Liabilities") {
-                        row("Secured debt", nw.securedDebt)
-                        row("Unsecured debt", nw.unsecuredDebt)
-                    }
-                } else {
-                    Section { ProgressView("Loading…") }
                 }
+                .padding(20)
             }
-            .navigationTitle("Track The Money")
+            .background(Brand.paper.ignoresSafeArea())
+            .inlineNavTitle("Track The Money")
             .refreshable { await model.refresh() }
         }
     }
 
-    private var chart: some View {
-        Chart(model.series, id: \.asOf) { point in
-            LineMark(x: .value("Date", Date(timeIntervalSince1970: TimeInterval(point.asOf))),
-                     y: .value("Net worth", Double(point.netWorth.cents) / 100))
-            .interpolationMethod(.monotone)
+    // The signature masthead: eyebrow → serif figure → trend.
+    private func masthead(_ nw: NetWorthSummary) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Eyebrow("Net worth · as of \(Date(timeIntervalSince1970: TimeInterval(nw.asOf)).formatted(.dateTime.month(.abbreviated).day()))")
+            MoneyText(nw.netWorth, size: 46, serif: true,
+                      color: nw.netWorth.cents >= 0 ? Brand.ink : Brand.clay)
+            if model.series.count > 1 {
+                Sparkline(points: model.series)
+                    .padding(.top, 2)
+            }
         }
-        .frame(height: 160)
-        .padding(.vertical, 4)
     }
 
-    private func row(_ label: String, _ amount: Money) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            Text(amount.formatted()).monospacedDigit().foregroundStyle(.secondary)
+    // Balance bar + legend.
+    private func composition(_ nw: NetWorthSummary) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            BalanceBar(assets: nw.assets, liabilities: nw.liabilities)
+            HStack(alignment: .top) {
+                legend("Assets", nw.assets, Brand.evergreen)
+                Spacer()
+                legend("Debts", nw.liabilities, Brand.clay, trailing: true)
+            }
         }
+        .brandCard()
+    }
+
+    private func legend(_ label: String, _ amount: Money, _ color: Color, trailing: Bool = false) -> some View {
+        VStack(alignment: trailing ? .trailing : .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Circle().fill(color).frame(width: 7, height: 7)
+                Eyebrow(label)
+            }
+            MoneyText(amount, size: 19, color: color)
+        }
+    }
+
+    private func breakdown(_ nw: NetWorthSummary) -> some View {
+        VStack(spacing: 0) {
+            line("Liquid", nw.liquid, Brand.evergreen)
+            sep; line("Investments", nw.investments, Brand.evergreen)
+            sep; line("Real estate equity", nw.realEstateEquity, Brand.evergreen)
+            sep; line("Secured debt", nw.securedDebt, Brand.clay)
+            sep; line("Unsecured debt", nw.unsecuredDebt, Brand.clay)
+        }
+        .brandCard()
+    }
+
+    private var sep: some View { Rectangle().fill(Brand.hairline).frame(height: 1) }
+
+    private func line(_ label: String, _ amount: Money, _ color: Color) -> some View {
+        HStack {
+            Text(label).font(.system(size: 16)).foregroundStyle(Brand.ink)
+            Spacer()
+            MoneyText(amount, size: 16, color: color)
+        }
+        .padding(.vertical, 11)
     }
 }

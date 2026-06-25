@@ -21,12 +21,14 @@ struct AccountsView: View {
                             .font(.caption)
                         }
                         Spacer()
-                        Text(account.balance.formatted(currencyCode: account.currency))
-                            .monospacedDigit()
-                            .foregroundStyle(account.accountClass.contribution == .liability ? Color.red : Color.primary)
+                        MoneyText(account.balance, size: 16,
+                                  color: account.accountClass.contribution == .liability ? Brand.clay : Brand.evergreen,
+                                  currency: account.currency)
                     }
+                    .listRowBackground(Brand.surface)
                 }
             }
+            .statementBackground()
             .navigationTitle("Accounts")
             .overlay { if model.accounts.isEmpty { ContentUnavailableView("No accounts", systemImage: "building.columns", description: Text("Add a SimpleFIN connection in Settings.")) } }
         }

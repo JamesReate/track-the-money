@@ -3,10 +3,10 @@ import Foundation
 /// The free, on-device `CoreFacade` implementation: SQLite + on-device SimpleFIN
 /// sync + deterministic rules. No backend. The SwiftUI app talks only to this.
 public final class LocalCore: CoreFacade {
-    private let store: Store
+    let store: Store
+    let clock: Clock
     private let secrets: SecretStore
     private let network: NetworkClient
-    private let clock: Clock
     private let client: SimpleFINClient
     private let engine: SyncEngine
     private let categorizer: Categorizer

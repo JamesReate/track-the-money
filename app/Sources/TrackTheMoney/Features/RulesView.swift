@@ -20,11 +20,13 @@ struct RulesView: View {
                             set: { _ in Task { await model.toggleRule(rule) } }
                         )).labelsHidden()
                     }
+                    .listRowBackground(Brand.surface)
                     .swipeActions {
                         Button("Delete", role: .destructive) { Task { await model.deleteRule(rule.id) } }
                     }
                 }
             }
+            .statementBackground()
             .navigationTitle("Rules")
             .overlay {
                 if model.rules.isEmpty {

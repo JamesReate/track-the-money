@@ -9,16 +9,18 @@ struct RealEstateView: View {
         NavigationStack {
             List {
                 ForEach(model.properties) { property in
-                    Section(property.name) {
-                        line("Value", property.value)
-                        line("Linked debt", property.linkedDebt)
-                        line("Equity", property.equity, emphasize: true)
+                    Section {
+                        line("Value", property.value, Brand.ink)
+                        line("Linked debt", property.linkedDebt, Brand.clay)
+                        line("Equity", property.equity, Brand.evergreen, emphasize: true)
                         NavigationLink("Link a mortgage / HELOC account") {
                             LinkDebtView(model: model, propertyId: property.id)
                         }
-                    }
+                        .listRowBackground(Brand.surface)
+                    } header: { Eyebrow(property.name) }
                 }
             }
+            .statementBackground()
             .navigationTitle("Real Estate")
             .toolbar { ToolbarItem(placement: .primaryAction) { Button { showAdd = true } label: { Image(systemName: "plus") } } }
             .overlay {
@@ -31,12 +33,13 @@ struct RealEstateView: View {
         }
     }
 
-    private func line(_ label: String, _ amount: Money, emphasize: Bool = false) -> some View {
+    private func line(_ label: String, _ amount: Money, _ color: Color, emphasize: Bool = false) -> some View {
         HStack {
             Text(label).fontWeight(emphasize ? .semibold : .regular)
             Spacer()
-            Text(amount.formatted()).monospacedDigit().fontWeight(emphasize ? .semibold : .regular)
+            MoneyText(amount, size: 16, color: color)
         }
+        .listRowBackground(Brand.surface)
     }
 }
 

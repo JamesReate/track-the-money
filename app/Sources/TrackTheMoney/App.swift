@@ -40,6 +40,12 @@ struct RootView: View {
             SettingsView(model: model)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
-        .task { await model.refresh() }
+        .tint(Brand.evergreen)
+        .task {
+            if ProcessInfo.processInfo.arguments.contains("-sampleData") {
+                await model.loadSampleData()
+            }
+            await model.refresh()
+        }
     }
 }
