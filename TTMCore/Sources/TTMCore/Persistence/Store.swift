@@ -202,6 +202,37 @@ public struct Store: Sendable {
         try queue.write { try c.save($0) }
     }
 
+    public func allCategories() throws -> [CategoryRecord] {
+        try queue.read { try CategoryRecord.order(Column("sort")).fetchAll($0) }
+    }
+
+    public func deleteRule(id: String) throws {
+        try queue.write { db in try db.execute(sql: "DELETE FROM rules WHERE id = ?", arguments: [id]) }
+    }
+
+    public struct SpendingRow: FetchableRecord, Decodable {
+        public var id: String
+        public var name: String
+        public var cents: Int64
+    }
+
+    /// Spend (money out) by category in [from, to]; excludes transfers.
+    public func spendingByCategory(from: Int64, to: Int64) throws -> [SpendingRow] {
+        try queue.read { db in
+            try SpendingRow.fetchAll(db, sql: """
+                SELECT COALESCE(c.id, 'uncategorized') AS id,
+                       COALESCE(c.name, 'Uncategorized') AS name,
+                       SUM(ABS(t.amount_cents)) AS cents
+                FROM transactions t
+                LEFT JOIN categories c ON c.id = t.category_id
+                WHERE t.amount_cents < 0 AND t.is_transfer = 0
+                  AND t.posted_at >= ? AND t.posted_at <= ?
+                GROUP BY 1, 2
+                ORDER BY cents DESC
+                """, arguments: [from, to])
+        }
+    }
+
     public func categoryCount() throws -> Int {
         try queue.read { try CategoryRecord.fetchCount($0) }
     }

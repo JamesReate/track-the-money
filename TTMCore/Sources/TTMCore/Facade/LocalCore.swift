@@ -107,9 +107,27 @@ public final class LocalCore: CoreFacade {
 
     // MARK: Categorization
 
+    public func categories() async throws -> [CategorySummary] {
+        try store.allCategories().map { CategorySummary(id: $0.id, name: $0.name, kind: $0.kind) }
+    }
+
     public func setCategory(transactionId: String, categoryId: String?) async throws {
         try store.setTransactionCategory(id: transactionId, categoryId: categoryId,
                                          source: categoryId == nil ? nil : "manual", updatedAt: clock.now())
+    }
+
+    public func rules() async throws -> [Rule] {
+        try categorizer.loadRules()
+    }
+
+    public func deleteRule(id: String) async throws {
+        try store.deleteRule(id: id)
+    }
+
+    public func spending(from: UnixTime, to: UnixTime) async throws -> [SpendingLine] {
+        try store.spendingByCategory(from: from, to: to).map {
+            SpendingLine(categoryId: $0.id, categoryName: $0.name, amount: Money(cents: $0.cents))
+        }
     }
 
     public func upsertRule(_ rule: Rule, apply: RuleApplyMode) async throws {
@@ -164,6 +182,10 @@ public final class LocalCore: CoreFacade {
 
     public func linkPropertyDebt(propertyId: String, accountId: String, role: String) async throws {
         try store.linkDebt(PropertyDebtRecord(propertyId: propertyId, accountId: accountId, role: role))
+    }
+
+    public func unlinkPropertyDebt(propertyId: String, accountId: String) async throws {
+        try store.unlinkDebt(propertyId: propertyId, accountId: accountId)
     }
 
     public func properties() async throws -> [PropertySummary] {

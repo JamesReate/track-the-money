@@ -63,6 +63,23 @@ public struct InterestLine: Equatable, Sendable {
     }
 }
 
+public struct CategorySummary: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let name: String
+    public let kind: String
+    public init(id: String, name: String, kind: String) { self.id = id; self.name = name; self.kind = kind }
+}
+
+public struct SpendingLine: Equatable, Sendable, Identifiable {
+    public let categoryId: String
+    public let categoryName: String
+    public let amount: Money
+    public var id: String { categoryId }
+    public init(categoryId: String, categoryName: String, amount: Money) {
+        self.categoryId = categoryId; self.categoryName = categoryName; self.amount = amount
+    }
+}
+
 public struct AccountSummary: Equatable, Sendable, Identifiable {
     public let id: String
     public let name: String
@@ -108,8 +125,14 @@ public protocol CoreFacade: Sendable {
     func netWorthSeries(from: UnixTime?, to: UnixTime?) async throws -> [NetWorthPoint]
 
     // Categorization
+    func categories() async throws -> [CategorySummary]
     func setCategory(transactionId: String, categoryId: String?) async throws
+    func rules() async throws -> [Rule]
     func upsertRule(_ rule: Rule, apply: RuleApplyMode) async throws
+    func deleteRule(id: String) async throws
+
+    // Spending
+    func spending(from: UnixTime, to: UnixTime) async throws -> [SpendingLine]
 
     // Interest & debt cost
     func setPaymentSplit(transactionId: String, principal: Money, interest: Money, escrow: Money) async throws
@@ -123,5 +146,6 @@ public protocol CoreFacade: Sendable {
     func addProperty(name: String, kind: String) async throws -> String
     func addPropertyValue(propertyId: String, value: Money, asOf: UnixTime, note: String?) async throws
     func linkPropertyDebt(propertyId: String, accountId: String, role: String) async throws
+    func unlinkPropertyDebt(propertyId: String, accountId: String) async throws
     func properties() async throws -> [PropertySummary]
 }
