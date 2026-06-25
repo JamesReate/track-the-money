@@ -1,0 +1,30 @@
+# Build artifacts
+/bin/
+/dist/
+ttm
+*.exe
+
+# SQLite database files & backups
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+
+# Secrets / local config
+.env
+.env.local
+*.local.toml
+
+# Go
+/vendor/
+
+# Frontend
+web/node_modules/
+web/dist/
+internal/api/assets/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
