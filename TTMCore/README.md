@@ -17,13 +17,14 @@ the engines unit-testable and the future Rust port bounded (see
 | `Classify` | ✅ real | `AccountClass` + smart-default guesser |
 | `Rules` | ✅ real | condition model + matcher (first-match-by-priority) |
 | `NetWorth` | ✅ rollup | pure asset/liability rollup helper |
-| `SimpleFIN` | 🟡 models + client | Codable v1/v2 models, `SimpleFINClient` (live impl) |
-| `Persistence` | 🟡 schema | GRDB `Database` + v1 migration (faithful to TECH_DESIGN §5) |
+| `SimpleFIN` | ✅ models + client | Codable v1/v2 models, `SimpleFINClient` (live impl) |
+| `Persistence` | ✅ real | GRDB `Database` + v1 migration, `Store` (DAO), records, seed data |
+| `Sync` | ✅ real | on-device sync engine — idempotent upsert, snapshots, reconcile |
+| `Classify/Categorizer` | ✅ real | rules pipeline at sync time + backfill/rerun |
+| `Facade` | ✅ contract + impl | `CoreFacade` + `LocalCore` (free on-device implementation) |
 | `Interest` | ⬜ stub | detection patterns + rollups (TODO M1.7) |
-| `Sync` | ⬜ stub | on-device sync engine (TODO M1.3) |
 | `Crypto` | ⬜ stub | HPKE/CryptoKit record sealing for paid relay (TODO M2.9) |
 | `SyncClient` | ⬜ stub | device-side client for the zero-knowledge relay (TODO M2.9+) |
-| `Facade` | ✅ contract | `CoreFacade` — the single app-facing API (port choke-point) |
 
 ## Build & test
 
@@ -36,9 +37,16 @@ swift test          # Money, Rules, Classify, NetWorth have real tests
 Requires a Swift toolchain (Xcode on macOS). GRDB is fetched via SPM on first
 build; bump its version in `Package.swift` as desired.
 
+## Working end-to-end now
+
+`LocalCore` wires DB + on-device SimpleFIN sync + rules. `SyncTests` drives the
+full path with fakes (no network): claim → sync → idempotent re-sync → rule
+applied at sync time → net worth from synced data.
+
 ## Next implementation steps (Milestone 1)
 
-1. `Persistence` record types + queries (GRDB `FetchableRecord`/`PersistableRecord`).
-2. `Sync.SyncEngine` — idempotent upsert, balance snapshots, pending reconcile.
-3. A concrete `CoreFacade` implementation wiring DB + sync + rules.
-4. Categorization pipeline (rules → uncategorized), interest rollups.
+1. Transaction list + FTS search queries; transfer auto-detection.
+2. Interest rollups (detect + payment splits) → debt/interest view.
+3. Property CRUD + value history + linked-debt equity in `netWorthSummary`.
+4. Net-worth over-time series from `balance_snapshots`.
+5. Wire `LocalCore` into the SwiftUI app (replace `NetWorthView`'s static data).
