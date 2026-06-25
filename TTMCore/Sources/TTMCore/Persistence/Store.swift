@@ -291,6 +291,56 @@ public struct Store: Sendable {
         }.map { SeriesPropertyValue(propertyId: $0.propertyId, valueCents: $0.valueCents, asOf: $0.asOf) }
     }
 
+    // MARK: Properties
+
+    public func saveProperty(_ p: PropertyRecord) throws { try queue.write { try p.save($0) } }
+    public func addPropertyValue(_ v: PropertyValueRecord) throws { var v = v; try queue.write { try v.insert($0) } }
+    public func linkDebt(_ d: PropertyDebtRecord) throws { try queue.write { try d.save($0) } }
+    public func unlinkDebt(propertyId: String, accountId: String) throws {
+        try queue.write { db in
+            try db.execute(sql: "DELETE FROM property_debts WHERE property_id = ? AND account_id = ?",
+                           arguments: [propertyId, accountId])
+        }
+    }
+
+    public struct PropertySummaryRow: FetchableRecord, Decodable {
+        public var id: String
+        public var name: String
+        public var valueCents: Int64
+        public var debtCents: Int64
+        enum CodingKeys: String, CodingKey {
+            case id, name
+            case valueCents = "value_cents"
+            case debtCents = "debt_cents"
+        }
+    }
+
+    /// Each property with its latest value and the summed balance of linked debt
+    /// accounts (magnitudes).
+    public func propertySummaries() throws -> [PropertySummaryRow] {
+        try queue.read { db in
+            try PropertySummaryRow.fetchAll(db, sql: """
+                SELECT p.id, p.name,
+                  COALESCE((SELECT pv.value_cents FROM property_values pv
+                            WHERE pv.property_id = p.id ORDER BY pv.as_of DESC LIMIT 1), 0) AS value_cents,
+                  COALESCE((SELECT SUM(ABS(a.balance_cents)) FROM property_debts pd
+                            JOIN accounts a ON a.id = pd.account_id WHERE pd.property_id = p.id), 0) AS debt_cents
+                FROM properties p
+                ORDER BY p.name
+                """)
+        }
+    }
+
+    /// Total magnitude of all debt accounts linked to any property.
+    public func linkedDebtTotalCents() throws -> Int64 {
+        try queue.read { db in
+            try Int64.fetchOne(db, sql: """
+                SELECT COALESCE(SUM(ABS(a.balance_cents)), 0)
+                FROM property_debts pd JOIN accounts a ON a.id = pd.account_id
+                """) ?? 0
+        }
+    }
+
     /// Latest value per property (max as_of), as cents.
     public func latestPropertyValuesCents() throws -> [Int64] {
         try queue.read { db in

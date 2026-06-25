@@ -72,7 +72,17 @@ public final class LocalCore: CoreFacade {
             return AccountBalance(accountClass: cls, balance: Money(cents: cents))
         }
         let propertyValues = try store.latestPropertyValuesCents().map { Money(cents: $0) }
-        return NetWorth.summary(accounts: balances, propertyValues: propertyValues, asOf: clock.now())
+        let base = NetWorth.summary(accounts: balances, propertyValues: propertyValues, asOf: clock.now())
+        // Real-estate equity = gross property value − linked mortgage/HELOC
+        // balances (those debts are already counted in liabilities; no double-count).
+        let linkedDebt = Money(cents: try store.linkedDebtTotalCents())
+        let grossProperty = propertyValues.reduce(Money.zero, +)
+        return NetWorthSummary(
+            assets: base.assets, liabilities: base.liabilities,
+            liquid: base.liquid, investments: base.investments,
+            realEstateEquity: grossProperty - linkedDebt,
+            securedDebt: base.securedDebt, unsecuredDebt: base.unsecuredDebt, asOf: base.asOf
+        )
     }
 
     public func netWorthSeries(from: UnixTime?, to: UnixTime?) async throws -> [NetWorthPoint] {
@@ -122,5 +132,29 @@ public final class LocalCore: CoreFacade {
     @discardableResult
     public func detectTransfers() async throws -> Int {
         try Transfers.detect(store: store, now: clock.now(), transferCategoryId: "transfer")
+    }
+
+    // MARK: Real estate
+
+    public func addProperty(name: String, kind: String) async throws -> String {
+        let id = UUID().uuidString
+        try store.saveProperty(PropertyRecord(id: id, name: name, kind: kind, createdAt: clock.now()))
+        return id
+    }
+
+    public func addPropertyValue(propertyId: String, value: Money, asOf: UnixTime, note: String?) async throws {
+        try store.addPropertyValue(PropertyValueRecord(
+            id: nil, propertyId: propertyId, valueCents: value.cents, asOf: asOf, note: note, createdAt: clock.now()
+        ))
+    }
+
+    public func linkPropertyDebt(propertyId: String, accountId: String, role: String) async throws {
+        try store.linkDebt(PropertyDebtRecord(propertyId: propertyId, accountId: accountId, role: role))
+    }
+
+    public func properties() async throws -> [PropertySummary] {
+        try store.propertySummaries().map {
+            PropertySummary(id: $0.id, name: $0.name, value: Money(cents: $0.valueCents), linkedDebt: Money(cents: $0.debtCents))
+        }
     }
 }

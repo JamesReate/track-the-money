@@ -63,6 +63,17 @@ public struct InterestLine: Equatable, Sendable {
     }
 }
 
+public struct PropertySummary: Equatable, Sendable {
+    public let id: String
+    public let name: String
+    public let value: Money
+    public let linkedDebt: Money
+    public var equity: Money { value - linkedDebt }
+    public init(id: String, name: String, value: Money, linkedDebt: Money) {
+        self.id = id; self.name = name; self.value = value; self.linkedDebt = linkedDebt
+    }
+}
+
 public struct InterestRollup: Equatable, Sendable {
     public let total: Money
     public let byAccount: [InterestLine]   // descending by interest paid
@@ -90,4 +101,10 @@ public protocol CoreFacade: Sendable {
     // Transactions
     func transactions(_ query: TxnQuery) async throws -> [TransactionRecord]
     @discardableResult func detectTransfers() async throws -> Int
+
+    // Real estate
+    func addProperty(name: String, kind: String) async throws -> String
+    func addPropertyValue(propertyId: String, value: Money, asOf: UnixTime, note: String?) async throws
+    func linkPropertyDebt(propertyId: String, accountId: String, role: String) async throws
+    func properties() async throws -> [PropertySummary]
 }

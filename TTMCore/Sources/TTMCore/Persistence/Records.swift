@@ -132,6 +132,48 @@ public struct CategoryRecord: Codable, FetchableRecord, PersistableRecord {
     }
 }
 
+public struct PropertyRecord: Codable, FetchableRecord, PersistableRecord {
+    public static let databaseTableName = "properties"
+    public var id: String
+    public var name: String
+    public var kind: String
+    public var createdAt: Int64
+    enum CodingKeys: String, CodingKey {
+        case id, name, kind
+        case createdAt = "created_at"
+    }
+}
+
+public struct PropertyValueRecord: Codable, FetchableRecord, MutablePersistableRecord {
+    public static let databaseTableName = "property_values"
+    public var id: Int64?
+    public var propertyId: String
+    public var valueCents: Int64
+    public var asOf: Int64
+    public var note: String?
+    public var createdAt: Int64
+    enum CodingKeys: String, CodingKey {
+        case id, note
+        case propertyId = "property_id"
+        case valueCents = "value_cents"
+        case asOf = "as_of"
+        case createdAt = "created_at"
+    }
+    public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
+}
+
+public struct PropertyDebtRecord: Codable, FetchableRecord, PersistableRecord {
+    public static let databaseTableName = "property_debts"
+    public var propertyId: String
+    public var accountId: String
+    public var role: String
+    enum CodingKeys: String, CodingKey {
+        case role
+        case propertyId = "property_id"
+        case accountId = "account_id"
+    }
+}
+
 public struct RuleRecord: Codable, FetchableRecord, PersistableRecord {
     public static let databaseTableName = "rules"
     public var id: String
