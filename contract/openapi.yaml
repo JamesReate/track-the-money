@@ -1,0 +1,107 @@
+openapi: 3.1.0
+info:
+  title: Track The Money — Sync & AI Contract
+  version: 0.1.0
+  description: >
+    Wire contract between the on-device app (free, local-first) and the cloud
+    backend (paid tier). Sync records are END-TO-END ENCRYPTED: the server stores
+    and relays opaque ciphertext and never holds decryption keys. Free users do
+    not call these endpoints.
+servers:
+  - url: https://api.trackthe.money
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  schemas:
+    EncryptedRecord:
+      type: object
+      description: One sync record. Server treats `ciphertext` as opaque.
+      required: [id, type, ciphertext, nonce, updated_at]
+      properties:
+        id:         { type: string, description: client-generated uuid }
+        type:       { type: string, enum: [account, transaction, rule, category, property, setting] }
+        ciphertext: { type: string, format: byte, description: AES-GCM payload, encrypted on device }
+        nonce:      { type: string, format: byte }
+        updated_at: { type: integer, description: unix seconds (lamport-ish for conflict resolution) }
+        deleted:    { type: boolean, default: false }
+    PushRequest:
+      type: object
+      properties:
+        device_id: { type: string }
+        since:     { type: integer, description: last sync cursor }
+        records:   { type: array, items: { $ref: '#/components/schemas/EncryptedRecord' } }
+    PullResponse:
+      type: object
+      properties:
+        cursor:  { type: integer }
+        records: { type: array, items: { $ref: '#/components/schemas/EncryptedRecord' } }
+    AICategorizeRequest:
+      type: object
+      description: >
+        Minimal, privacy-bounded payload — descriptions/payees/amounts only.
+        NEVER account numbers, balances, or SimpleFIN credentials.
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              client_txn_id: { type: string }
+              description:    { type: string }
+              payee:         { type: string }
+              amount_cents:  { type: integer }
+              currency:      { type: string }
+        categories:
+          type: array
+          items: { type: string }
+    AICategorizeResponse:
+      type: object
+      properties:
+        suggestions:
+          type: array
+          items:
+            type: object
+            properties:
+              client_txn_id: { type: string }
+              category:      { type: string }
+              confidence:    { type: number }
+              suggested_rule: { type: object, nullable: true }
+              rationale:     { type: string }
+
+security:
+  - bearer: []
+
+paths:
+  /v1/auth/login:
+    post:
+      summary: Sign in (paid account) and register device
+      security: []
+      responses: { '200': { description: token + device_id } }
+
+  /v1/sync/push:
+    post:
+      summary: Upload encrypted records changed on this device
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/PushRequest' } } }
+      responses: { '200': { description: accepted, returns new cursor } }
+
+  /v1/sync/pull:
+    get:
+      summary: Download encrypted records changed since cursor
+      parameters:
+        - { in: query, name: since, schema: { type: integer } }
+      responses:
+        '200':
+          content: { application/json: { schema: { $ref: '#/components/schemas/PullResponse' } } }
+
+  /v1/ai/categorize:
+    post:
+      summary: Suggest categories for uncategorized transactions (paid)
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/AICategorizeRequest' } } }
+      responses:
+        '200':
+          content: { application/json: { schema: { $ref: '#/components/schemas/AICategorizeResponse' } } }

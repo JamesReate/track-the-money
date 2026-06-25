@@ -1,9 +1,9 @@
 # Track The Money — Product Plan & Feature Spec
 
-> A self-hosted personal/family financial tracker. SimpleFIN is the **authoritative source** of account balances and transactions. The app's job is not bookkeeping — it's **classification, categorization, and insight**: realtime net worth, expense buckets, and "how much am I paying in interest."
+> A **local-first**, native personal/family financial tracker. SimpleFIN is the **authoritative source** of account balances and transactions. The app's job is not bookkeeping — it's **classification, categorization, and insight**: realtime net worth, expense buckets, and "how much am I paying in interest." Free on-device; optional paid cloud tier for sync, multi-user, and AI.
 
-**Status:** Spec / planning. Technical stack (Go, **SQLite**, Lit + Vite + TS) detailed in [TECH_DESIGN.md](TECH_DESIGN.md).
-**Last updated:** 2026-06-24
+**Status:** Spec / planning. On-device stack (Swift `TTMCore` + SwiftUI + GRDB/SQLite) and cloud backend (Go, private repo) detailed in [TECH_DESIGN.md](TECH_DESIGN.md).
+**Last updated:** 2026-06-25
 
 ---
 
@@ -11,17 +11,35 @@
 
 | Decision | Choice | Implication |
 |---|---|---|
-| Users & auth | **Single household, shared login** | One credential for the family. No per-user roles in v1. Keep auth pluggable so multi-user can be added later. |
-| Deployment | **Self-hosted** (home server / NAS / small VPS) | Single Go binary + **SQLite file** (DB embedded in-process). Data stays private. Designed for one household instance, not multi-tenant. |
-| Data store | **SQLite** (WAL + STRICT tables) | One writer (sync worker) fits SQLite's sweet spot. Backup = copy the file. Keep SQL portable (sqlc) so a future move to Postgres is a migration, not a rewrite. |
-| AI categorization | **Rules-first, AI fallback** | Deterministic rules handle the bulk. AI only *suggests* categories for unmatched transactions; suggestions become rules once confirmed. |
-| First milestone | **Sync foundation, then net worth + categorization (equal weight)** | Sync is the bedrock everything depends on; net worth and categorization ship together on top of it. |
+| Product shape | **Local-first, native app** (free) + **optional paid cloud** | Free tier runs entirely on-device. Paid tier adds cloud sync, multi-user, and AI. See §1a. |
+| Frontend | **SwiftUI** (iOS primary, macOS primary), Android/Windows later | Native Apple feel from one SwiftUI codebase across iOS + Mac. Charts via Swift Charts. |
+| Shared core | **Swift `TTMCore`** — pure, UI-independent module | Holds SimpleFIN client, sync, rules, net-worth/interest math, persistence. No SwiftUI/UIKit deps → unit-testable and **portable to Rust/KMP at the Android milestone** without a tangle. |
+| On-device store | **SQLite via GRDB** | Single-writer on device fits SQLite. Type-safe queries, migrations, change observation. |
+| Users & auth | **Free: single on-device profile** · **Paid: multi-user cloud accounts** | No login needed for the free local app. Accounts/auth live in the paid backend only. |
+| AI categorization | **Rules-first (free, on-device)** · **AI fallback (paid, server-side)** | Deterministic rules ship in the free app. AI categorization is a paid-tier perk run on the backend (prompts/keys private). |
+| Cloud backend | **Separate private repo** (`track-the-money-cloud`, Go + Postgres) | Open-core: the moat (sync relay, AI, billing, infra) stays private. Free app is complete without it. |
+| First milestone | **On-device: sync foundation → net worth + categorization (equal weight)** | Ship the free local app first; cloud/AI tier follows. |
+
+### 1a. Business Model & Tiers
+
+**Free (local-first, open source, app stores):**
+- Runs entirely on-device. SimpleFIN sync, deterministic rules, categorization, net worth, real estate, interest tracking — all local.
+- Access URL stored in OS secure storage (Keychain). No account, no server, **no cost to operate**.
+- Platforms: iOS primary, macOS primary (Android/Windows later).
+
+**Paid (low yearly fee):**
+- **Cloud sync** across devices + **multi-user** (family members on their own devices).
+- **AI auto-categorization** (server-side Claude) for transactions rules didn't match.
+- **End-to-end encrypted:** the backend stores opaque ciphertext and cannot read user financial data — a core selling point.
+
+The free/paid line *is* the public/private repo line (see [TECH_DESIGN.md](TECH_DESIGN.md) §Repo Boundary).
 
 ### Guiding principles
-- **SimpleFIN is truth.** We never compute a balance ourselves and present it as authoritative. If SimpleFIN says an account holds $X, that's what we show. We layer *meaning* on top (classification, categories), not a competing ledger.
-- **Rules are deterministic and inspectable.** A user must always be able to see *why* a transaction landed in a category. AI is an assistant that proposes rules, never an opaque black box that silently moves money.
+- **SimpleFIN is truth.** We never compute a balance ourselves and present it as authoritative. We layer *meaning* on top (classification, categories), not a competing ledger.
+- **Local-first.** The free app is fully functional offline/on-device. The cloud is an enhancement, never a requirement.
+- **Rules are deterministic and inspectable.** A user must always see *why* a transaction landed in a category. AI is a paid assistant that proposes rules, never an opaque black box that silently moves money.
 - **Idempotent sync.** Re-syncing the same window must never duplicate transactions or corrupt history.
-- **Privacy by default.** Self-hosted; the only data that leaves the box is what's explicitly sent to the AI provider, and that is minimal and configurable.
+- **Privacy by default.** On-device by default; cloud sync is end-to-end encrypted; the only plaintext that leaves the device is the minimal, bounded payload sent to the AI service (descriptions/payees/amounts — never balances or credentials).
 
 ---
 
@@ -32,7 +50,7 @@ SimpleFIN Bridge (`https://beta-bridge.simplefin.org`) connects to financial ins
 ### 2.1 Connection / claim flow
 1. User generates a **Setup Token** from the SimpleFIN Bridge (`/create`, base64-encoded URL).
 2. App decodes the token and `POST /claim/:token` to exchange it for an **Access URL** that embeds HTTP Basic Auth credentials.
-3. App stores the Access URL **encrypted at rest** (it is a long-lived credential).
+3. App stores the Access URL in **OS secure storage (Keychain)** — it is a long-lived credential and never leaves the device (not even to the paid cloud tier).
 4. All data fetches use `GET {access-url}/accounts` with Basic Auth.
 
 > The setup token is single-use; the resulting Access URL is the durable secret. Losing it means re-claiming. Treat it like a password.
@@ -106,13 +124,13 @@ Real estate isn't in SimpleFIN, so it's modeled explicitly:
 - The canonical workflow: *"All charges from `CHEWY.COM` → Pets/Dog"* becomes a one-click rule from any transaction.
 - Rules are **inspectable and editable** in one place; user can re-run all rules.
 
-### 4.3 AI fallback (assistant, second line)
+### 4.3 AI fallback (assistant, second line — **paid tier, server-side**)
+- **Free tier is rules-only.** AI categorization is a **paid-tier feature**: the device sends unmatched transactions to the cloud backend, which calls Claude. Prompts, API key, and eval live in the private backend repo — never on-device.
 - Runs **only on transactions no rule matched** (Uncategorized).
 - For each, the AI proposes: a **category** + **confidence** + optionally a **suggested reusable rule** ("looks like all `TST* DOG GROOMER` are Pets/Dog — make a rule?").
-- **Human-in-the-loop**: suggestions land in a review queue. Confirming a suggestion can (a) categorize the one txn, or (b) promote it to a permanent rule so it's deterministic forever after.
-- **Privacy controls**: configurable — which fields are sent (default: description/payee + amount + category list, *not* account numbers), provider/API key, and an on/off switch. Batch requests to limit calls/cost.
-- Provider: Claude API (default), key supplied by the household; pluggable so a local model can be swapped in later.
-- AI **never auto-commits** a category in v1 without confirmation (configurable threshold could auto-apply high-confidence later).
+- **Human-in-the-loop**: suggestions land in a review queue. Confirming a suggestion can (a) categorize the one txn, or (b) promote it to a permanent **local** rule so it's deterministic forever after (and works offline/free from then on).
+- **Privacy boundary** (enforced server-side, not just UI): only `description` / `payee` / `amount` / category list are sent — **never account numbers, balances, or SimpleFIN credentials**. Batched to limit calls/cost.
+- AI **never auto-commits** a category without confirmation (a confidence threshold could auto-apply later).
 
 ---
 
@@ -143,26 +161,27 @@ A first-class question: **"How much am I paying in interest?"**
 
 ## 7. MVP Scope (Milestone 1)
 
-**Goal:** a working realtime net-worth + categorized-spending picture for the household.
+**Goal:** ship the **free, local-first SwiftUI app** (iOS + Mac) with a working realtime net-worth + categorized-spending picture — fully on-device.
 
-**In scope**
-- SimpleFIN claim flow + encrypted Access URL storage (multi-connection).
+**In scope (free, on-device)**
+- SimpleFIN claim flow + Access URL in Keychain (multi-connection).
 - Idempotent sync engine: accounts, transactions, balance snapshots, pending handling.
-- Account classification + smart defaults → **net worth dashboard** (with over-time chart).
+- Account classification + smart defaults → **net worth dashboard** (with over-time chart via Swift Charts).
 - Real estate properties with manual value + linked mortgage/HELOC → equity.
 - Category hierarchy + **deterministic rules engine** (apply-forward & backfill).
-- **AI fallback** categorization with human-in-the-loop review queue → promote to rules.
 - Interest categorization + basic **debt/interest dashboard**.
-- Single shared household login; manual + scheduled sync.
+- Manual + scheduled sync; single on-device profile (no login).
+
+**Deferred to the paid tier (Milestone 2, private backend repo)**
+- Cloud sync (multi-device) + multi-user accounts.
+- **AI auto-categorization** with human-in-the-loop review queue → promote to local rules.
 
 **Explicitly out of scope (v1)**
-- Multi-user roles/permissions, invites, per-user privacy.
 - Budgets / goals / forecasting / alerts.
 - Automated property valuation (Zillow-style).
 - Investment holdings-level detail (securities/lots) — account-level balance only.
 - Writing back to institutions, bill pay, payments.
-- Mobile native apps (responsive web is enough).
-- Local/offline AI model (architecture stays pluggable for it).
+- Android / Windows apps (Apple-first; `TTMCore` kept portable for later).
 
 ---
 
@@ -170,8 +189,8 @@ A first-class question: **"How much am I paying in interest?"**
 
 - **Money:** integer minor units (cents) everywhere — never floats; currency-aware (multi-currency support deferred but schema-ready).
 - **Idempotency & auditability:** every sync and every rule application is traceable; transactions show their categorization source (rule id / AI / manual).
-- **Security:** Access URLs and AI keys encrypted at rest; app behind auth; HTTPS expected even self-hosted.
-- **Backup/Export:** one-command DB backup; CSV/JSON export of transactions and net-worth history.
+- **Security:** Access URL in Keychain on-device; cloud sync is end-to-end encrypted (server holds only ciphertext); AI key lives server-side only.
+- **Backup/Export:** local DB export + CSV/JSON export of transactions and net-worth history (paid tier adds cloud backup).
 - **Resilience:** a failed connection (bank needs re-auth) degrades gracefully — other accounts still sync and display.
 - **Time zones:** store UTC; display in the household's configured local time.
 
@@ -190,4 +209,4 @@ A first-class question: **"How much am I paying in interest?"**
 
 ## 10. Technical Design
 
-See **[TECH_DESIGN.md](TECH_DESIGN.md)** for the Go service layout (sync workers, rules engine, AI client), the SQLite schema (connections, accounts, balance_snapshots, transactions, categories, rules, properties, ai_suggestions), the HTTP API surface, and the Lit + Vite + TS frontend structure.
+See **[TECH_DESIGN.md](TECH_DESIGN.md)** for the on-device architecture (Swift `TTMCore` + SwiftUI + GRDB/SQLite — sync, rules, net-worth engines), the SQLite schema, the repo boundary (public app vs private `track-the-money-cloud` backend), and the E2E-encrypted sync + AI contract (`/contract/openapi.yaml`).
