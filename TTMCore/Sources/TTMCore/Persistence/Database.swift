@@ -5,7 +5,9 @@ import GRDB
 /// the schema migrations. TTMCore owns the DB connection; the app reaches data
 /// only through the CoreFacade — never by touching GRDB directly. That choke
 /// point is what keeps the future Rust port (TECH_DESIGN §13) bounded.
-public final class Database {
+// GRDB's DatabaseQueue is thread-safe (serializes all access), so this wrapper
+// is safe to share across concurrency domains.
+public final class Database: @unchecked Sendable {
     public let dbQueue: DatabaseQueue
 
     public init(path: String) throws {
