@@ -101,6 +101,28 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(chewy?.categorySource, "rule:r-pets")
     }
 
+    func testInterestDetectedAndRolledUp() async throws {
+        let (store, engine, _, _) = try makeCore()   // default interest rule seeded
+        _ = await engine.run()
+
+        let rows = try store.interestByAccount(categoryId: DefaultData.interestCategoryId, from: 0, to: 2_000_000_000)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.name, "VISA Signature")
+        XCTAssertEqual(rows.first?.cents, 1500)   // ABS(-15.00) interest charge
+    }
+
+    func testPaymentSplitFeedsInterest() async throws {
+        let (store, engine, _, clock) = try makeCore()
+        _ = await engine.run()
+        // Attribute interest to the PAYROLL txn purely to exercise the split path.
+        let payroll = try store.transactionsForMatching(onlyUncategorized: false).first { $0.description == "PAYROLL" }!
+        try store.setPaymentSplit(transactionId: payroll.id, principal: 90000, interest: 10000, escrow: 0, now: clock.now())
+
+        let rows = try store.interestByAccount(categoryId: DefaultData.interestCategoryId, from: 0, to: 2_000_000_000)
+        let checking = rows.first { $0.name == "Everyday Checking" }
+        XCTAssertEqual(checking?.cents, 10000)   // split interest portion
+    }
+
     func testNetWorthFromSyncedData() async throws {
         let (store, engine, _, clock) = try makeCore()
         _ = await engine.run()

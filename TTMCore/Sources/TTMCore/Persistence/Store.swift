@@ -122,12 +122,59 @@ public struct Store: Sendable {
         try queue.write { try r.save($0) }
     }
 
+    public func ruleCount() throws -> Int {
+        try queue.read { try RuleRecord.fetchCount($0) }
+    }
+
     public func saveCategory(_ c: CategoryRecord) throws {
         try queue.write { try c.save($0) }
     }
 
     public func categoryCount() throws -> Int {
         try queue.read { try CategoryRecord.fetchCount($0) }
+    }
+
+    // MARK: Payment splits & interest
+
+    /// One split per transaction: replace any existing.
+    public func setPaymentSplit(transactionId: String, principal: Int64, interest: Int64, escrow: Int64, now: Int64) throws {
+        try queue.write { db in
+            try db.execute(sql: "DELETE FROM payment_splits WHERE transaction_id = ?", arguments: [transactionId])
+            try db.execute(sql: """
+                INSERT INTO payment_splits (transaction_id, principal_cents, interest_cents, escrow_cents, source, created_at)
+                VALUES (?, ?, ?, ?, 'manual', ?)
+                """, arguments: [transactionId, principal, interest, escrow, now])
+        }
+    }
+
+    private struct InterestRow: FetchableRecord, Decodable {
+        var id: String
+        var name: String
+        var cents: Int64
+    }
+
+    /// Interest paid per account in [from, to], combining interest-categorized
+    /// transactions and the interest portion of payment splits.
+    public func interestByAccount(categoryId: String, from: Int64, to: Int64) throws -> [(accountId: String, name: String, cents: Int64)] {
+        try queue.read { db in
+            try InterestRow.fetchAll(db, sql: """
+                SELECT a.id AS id, a.name AS name, SUM(x.cents) AS cents
+                FROM (
+                    SELECT account_id, ABS(amount_cents) AS cents
+                    FROM transactions
+                    WHERE category_id = ? AND posted_at >= ? AND posted_at <= ?
+                    UNION ALL
+                    SELECT t.account_id, ps.interest_cents AS cents
+                    FROM payment_splits ps
+                    JOIN transactions t ON t.id = ps.transaction_id
+                    WHERE t.posted_at >= ? AND t.posted_at <= ?
+                ) x
+                JOIN accounts a ON a.id = x.account_id
+                GROUP BY a.id, a.name
+                HAVING cents <> 0
+                ORDER BY cents DESC
+                """, arguments: [categoryId, from, to, from, to])
+        }.map { ($0.id, $0.name, $0.cents) }
     }
 
     // MARK: Net worth inputs

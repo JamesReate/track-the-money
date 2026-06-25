@@ -39,6 +39,21 @@ public struct SyncOutcome: Equatable, Sendable {
 
 public enum RuleApplyMode: Sendable { case forwardOnly, backfill, rerunAll }
 
+public struct InterestLine: Equatable, Sendable {
+    public let accountId: String
+    public let accountName: String
+    public let interest: Money
+    public init(accountId: String, accountName: String, interest: Money) {
+        self.accountId = accountId; self.accountName = accountName; self.interest = interest
+    }
+}
+
+public struct InterestRollup: Equatable, Sendable {
+    public let total: Money
+    public let byAccount: [InterestLine]   // descending by interest paid
+    public init(total: Money, byAccount: [InterestLine]) { self.total = total; self.byAccount = byAccount }
+}
+
 /// The contract every TTMCore implementation (Swift now, Rust later) satisfies.
 public protocol CoreFacade: Sendable {
     // Connections / sync
@@ -52,4 +67,8 @@ public protocol CoreFacade: Sendable {
     // Categorization
     func setCategory(transactionId: String, categoryId: String?) async throws
     func upsertRule(_ rule: Rule, apply: RuleApplyMode) async throws
+
+    // Interest & debt cost
+    func setPaymentSplit(transactionId: String, principal: Money, interest: Money, escrow: Money) async throws
+    func interestSummary(from: UnixTime, to: UnixTime) async throws -> InterestRollup
 }

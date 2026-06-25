@@ -98,4 +98,18 @@ public final class LocalCore: CoreFacade {
         ))
         try categorizer.reapply(mode: apply)
     }
+
+    // MARK: Interest & debt cost
+
+    public func setPaymentSplit(transactionId: String, principal: Money, interest: Money, escrow: Money) async throws {
+        try store.setPaymentSplit(transactionId: transactionId, principal: principal.cents,
+                                  interest: interest.cents, escrow: escrow.cents, now: clock.now())
+    }
+
+    public func interestSummary(from: UnixTime, to: UnixTime) async throws -> InterestRollup {
+        let rows = try store.interestByAccount(categoryId: DefaultData.interestCategoryId, from: from, to: to)
+        let lines = rows.map { InterestLine(accountId: $0.accountId, accountName: $0.name, interest: Money(cents: $0.cents)) }
+        let total = lines.reduce(Money.zero) { $0 + $1.interest }
+        return InterestRollup(total: total, byAccount: lines)
+    }
 }

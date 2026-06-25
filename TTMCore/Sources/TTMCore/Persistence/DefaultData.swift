@@ -3,6 +3,8 @@ import Foundation
 // Seed categories shipped on first launch (PLAN.md §4.1). Idempotent: only seeds
 // when the categories table is empty.
 public enum DefaultData {
+    public static let interestCategoryId = "interest"
+
     public struct Seed { let id: String; let name: String; let kind: String }
 
     public static let categories: [Seed] = [
@@ -21,12 +23,28 @@ public enum DefaultData {
     ]
 
     public static func seedIfEmpty(_ store: Store, now: UnixTime) throws {
-        guard try store.categoryCount() == 0 else { return }
-        for (index, seed) in categories.enumerated() {
-            try store.saveCategory(CategoryRecord(
-                id: seed.id, name: seed.name, parentId: nil, kind: seed.kind,
-                color: nil, sort: index, createdAt: now
-            ))
+        if try store.categoryCount() == 0 {
+            for (index, seed) in categories.enumerated() {
+                try store.saveCategory(CategoryRecord(
+                    id: seed.id, name: seed.name, parentId: nil, kind: seed.kind,
+                    color: nil, sort: index, createdAt: now
+                ))
+            }
         }
+        try seedRulesIfEmpty(store, now: now)
+    }
+
+    /// Default interest-detection rule (description contains any interest phrase
+    /// → Interest category). Seeded only when no rules exist.
+    static func seedRulesIfEmpty(_ store: Store, now: UnixTime) throws {
+        guard try store.ruleCount() == 0 else { return }
+        let condition = Condition(op: .or, clauses: Interest.defaultInterestPatterns.map {
+            Clause(field: .description, match: .contains, value: $0)
+        })
+        let json = (try? JSONEncoder().encode(condition)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        try store.saveRuleRecord(RuleRecord(
+            id: "rule-interest", name: "Interest charges", categoryId: interestCategoryId,
+            priority: 50, enabled: true, conditions: json, createdAt: now, updatedAt: now
+        ))
     }
 }
