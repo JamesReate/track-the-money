@@ -59,6 +59,20 @@ public final class LocalCore: CoreFacade {
         await engine.run()
     }
 
+    // MARK: Accounts
+
+    public func accounts() async throws -> [AccountSummary] {
+        try store.allAccounts().map {
+            AccountSummary(id: $0.id, name: $0.name,
+                           accountClass: AccountClass(rawValue: $0.accountClass) ?? .unclassified,
+                           balance: Money(cents: $0.balanceCents), currency: $0.currency, archived: $0.archived)
+        }
+    }
+
+    public func setAccountClass(accountId: String, accountClass: AccountClass) async throws {
+        try store.setAccountClass(id: accountId, accountClass: accountClass.rawValue)
+    }
+
     // MARK: Net worth
 
     public func netWorthSummary() async throws -> NetWorthSummary {

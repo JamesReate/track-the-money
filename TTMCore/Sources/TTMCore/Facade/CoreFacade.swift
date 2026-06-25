@@ -63,7 +63,20 @@ public struct InterestLine: Equatable, Sendable {
     }
 }
 
-public struct PropertySummary: Equatable, Sendable {
+public struct AccountSummary: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let name: String
+    public let accountClass: AccountClass
+    public let balance: Money
+    public let currency: String
+    public let archived: Bool
+    public init(id: String, name: String, accountClass: AccountClass, balance: Money, currency: String, archived: Bool) {
+        self.id = id; self.name = name; self.accountClass = accountClass
+        self.balance = balance; self.currency = currency; self.archived = archived
+    }
+}
+
+public struct PropertySummary: Equatable, Sendable, Identifiable {
     public let id: String
     public let name: String
     public let value: Money
@@ -85,6 +98,10 @@ public protocol CoreFacade: Sendable {
     // Connections / sync
     func claimSetupToken(_ token: String) async throws
     func syncNow() async throws -> SyncOutcome
+
+    // Accounts
+    func accounts() async throws -> [AccountSummary]
+    func setAccountClass(accountId: String, accountClass: AccountClass) async throws
 
     // Net worth
     func netWorthSummary() async throws -> NetWorthSummary
