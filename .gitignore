@@ -23,6 +23,14 @@ web/node_modules/
 web/dist/
 internal/api/assets/
 
+# Swift / Xcode
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+Package.resolved
+
 # Editor / OS
 .DS_Store
 .idea/
