@@ -4,8 +4,9 @@ Resume pointer for Track The Money. See [PLAN.md](PLAN.md) (product) and
 [TECH_DESIGN.md](TECH_DESIGN.md) (architecture). Verified on macOS with the
 Swift 6.3 toolchain.
 
-**Build & test:** `cd TTMCore && swift build && swift test` — currently **25
-tests passing, 0 warnings**.
+**Build & test:**
+- Core: `cd TTMCore && swift build && swift test` — **25 tests passing, 0 warnings**.
+- App: `cd app && swift build` (or `swift run TrackTheMoney` on macOS) — builds clean.
 
 ## Milestone 1 — Free on-device app
 
@@ -31,17 +32,22 @@ tests passing, 0 warnings**.
 - ✅ **Real estate** — properties, value history, linked mortgage/HELOC →
   equity; corrected `realEstateEquity` in net worth.
 - ✅ **LocalCore** — the free-tier `CoreFacade` implementation wiring all of the
-  above. `App/` has drop-in SwiftUI starter sources (Keychain + URLSession
-  adapters, `NetWorthView`).
+  above (+ `accounts()`/`setAccountClass()` and `AccountSummary`).
+- ✅ **SwiftUI app** (`app/`, SPM package, builds on macOS) — `AppModel`
+  (`@Observable` over `CoreFacade`) + screens: Net Worth (Swift Charts
+  over-time), Accounts (class picker), Transactions (FTS search), Debt &
+  Interest, Settings (claim token + sync).
 
 ### Next up (resume here)
-1. ⏭️ **Wire `LocalCore` into the SwiftUI app** — replace `NetWorthView`'s static
-   data; add Accounts, Transactions (search/categorize/create-rule), Rules,
-   Spending, Debt/Interest, Real Estate, Settings (claim/sync) screens. Needs an
-   Xcode project (see `App/README.md`).
-2. Spending breakdown by category/period; categories CRUD UI.
-3. AI review-queue UI scaffolding (paid; backend not built yet).
-4. Scheduled background refresh (`BGAppRefreshTask`) + manual sync wiring.
+1. ⏭️ **More screens:** Rules editor + "create rule from transaction", per-txn
+   manual categorize, Real Estate (properties/value/debt links), Spending
+   breakdown by category/period, Categories CRUD.
+2. Scheduled background refresh (`BGAppRefreshTask` iOS / timer macOS) + sync
+   status surfacing per connection (needs_auth/error).
+3. Local CSV/JSON export.
+4. **Generate the iOS Xcode app** (App Store target) importing the `app` +
+   `TTMCore` packages — the SwiftUI builds today only as a macOS SPM executable.
+5. AI review-queue UI scaffolding (paid; backend not built yet).
 
 ## Milestone 2 — Paid cloud (private repo `track-the-money-cloud`)
 Not started. Zero-knowledge encrypted relay (Go + Postgres): sync relay, public
