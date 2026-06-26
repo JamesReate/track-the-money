@@ -5,8 +5,9 @@ Resume pointer for Track The Money. See [PLAN.md](PLAN.md) (product) and
 Swift 6.3 toolchain.
 
 **Build & test:**
-- Core: `cd TTMCore && swift build && swift test` — **25 tests passing, 0 warnings**.
+- Core: `cd TTMCore && swift build && swift test` — **26 tests passing, 0 warnings**.
 - App: `cd app && swift build` (or `swift run TrackTheMoney` on macOS) — builds clean.
+- Xcode (multiplatform): `xcodegen generate && open TrackTheMoney.xcodeproj` — see [BUILD.md](BUILD.md).
 
 ## Milestone 1 — Free on-device app
 
@@ -44,15 +45,33 @@ Swift 6.3 toolchain.
   Simulator builds both succeed**. See [BUILD.md](BUILD.md). (`.xcodeproj`
   gitignored; `xcodegen generate` to recreate. Set your Team in Xcode to run on
   device.)
+- ✅ **Design pass** ("The Statement") — `Theme.swift` design system: semantic
+  palette (evergreen=assets, clay=debts), New York serif hero numerals, Eyebrow
+  labels, BalanceBar + Sparkline signature, paper/surface cards across all
+  screens. Sample-data loader (Settings → Load sample data, or `-sampleData`
+  launch arg) + `-tab <name>` launch arg.
+- ✅ **Live SimpleFIN path verified** against beta-bridge.simplefin.org demo:
+  claim → `demo:demo` Access URL → `/accounts` decodes. Fixed `errlist`→`errors`
+  key; `SimpleFINDecodeTests` guards the real shape. **26 tests pass.**
+- ✅ **UX iterations**: account **rename** (display nickname, migration v3 — sync
+  never overwrites it, ids unchanged so sync continues); **categorize
+  auto-applies** on category tap (+ optional "Also create a rule" toggle); row
+  **reflects new category immediately + glows**; **Spending month filter** (last
+  6 months + All time chips, defaults to current month).
 
 ### Next up (resume here)
-1. ⏭️ Scheduled background refresh (`BGAppRefreshTask` iOS / timer macOS) +
+1. ⏭️ Run live on Simulator/device with a real SimpleFIN token (Settings → paste
+   setup token). The network path is verified; this is the end-to-end proof.
+2. Scheduled background refresh (`BGAppRefreshTask` iOS / timer macOS) +
    per-connection sync status surfacing (needs_auth/error) in Settings.
-2. Categories CRUD UI; rule priority editing; "apply mode" choice on rule create.
-3. Local CSV/JSON export.
-4. Run live on Simulator/device with a real SimpleFIN token; fix runtime issues.
+3. Categories CRUD UI; rule priority editing; "apply mode" choice on rule create.
+4. Local CSV/JSON export.
 5. **Milestone 2** — paid cloud (`track-the-money-cloud`): Go relay + AI proxy +
    auth/billing; device-side `Crypto` (HPKE/CryptoKit) + `SyncClient`.
+
+> Note: headless iOS Simulator screen capture went black mid-session (GPU/display
+> state — app process confirmed running, no crash); Net Worth + Accounts shots
+> rendered fine earlier. Build/test are the source of truth here.
 
 ## Milestone 2 — Paid cloud (private repo `track-the-money-cloud`)
 Not started. Zero-knowledge encrypted relay (Go + Postgres): sync relay, public
