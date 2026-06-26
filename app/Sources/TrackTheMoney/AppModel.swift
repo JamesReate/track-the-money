@@ -2,6 +2,14 @@ import Foundation
 import Observation
 import TTMCore
 
+/// A selectable spending window (a month, or all time).
+public struct SpendingPeriod: Identifiable, Equatable, Sendable {
+    public let id: String        // "yyyy-MM" or "all"
+    public let label: String     // "Jun", "May 25", "All time"
+    public let from: UnixTime
+    public let to: UnixTime
+}
+
 /// Observable view-model bridging SwiftUI to the `CoreFacade`. Owns one facade
 /// instance; all screens read its published state and call its async actions.
 @MainActor
@@ -18,6 +26,8 @@ public final class AppModel {
     public var categories: [CategorySummary] = []
     public var rules: [Rule] = []
     public var spending: [SpendingLine] = []
+    public var spendingPeriods: [SpendingPeriod] = []
+    public var selectedSpendingPeriod = ""
     public var statusMessage = ""
     public var isSyncing = false
     /// Transaction id just (re)categorized — drives the row glow highlight.
@@ -43,9 +53,45 @@ public final class AppModel {
             interest = try await core.interestSummary(from: 0, to: 4_102_444_800) // through ~2100
             categories = try await core.categories()
             rules = try await core.rules()
-            spending = try await core.spending(from: 0, to: 4_102_444_800)
+            buildSpendingPeriods()
+            let period = spendingPeriods.first { $0.id == selectedSpendingPeriod }
+            spending = try await core.spending(from: period?.from ?? 0, to: period?.to ?? 4_102_444_800)
         } catch {
             statusMessage = "Load failed: \(error)"
+        }
+    }
+
+    public func selectSpendingPeriod(_ id: String) async {
+        selectedSpendingPeriod = id
+        guard let p = spendingPeriods.first(where: { $0.id == id }) else { return }
+        spending = (try? await core.spending(from: p.from, to: p.to)) ?? []
+    }
+
+    /// Last 6 months + All time. Defaults the selection to the current month.
+    private func buildSpendingPeriods() {
+        let cal = Calendar.current
+        let now = Date()
+        let currentYear = cal.component(.year, from: now)
+        func monthStart(_ d: Date) -> Date { cal.date(from: cal.dateComponents([.year, .month], from: d)) ?? d }
+
+        let month = DateFormatter(); month.dateFormat = "MMM"
+        let monthYr = DateFormatter(); monthYr.dateFormat = "MMM yy"
+        let idFmt = DateFormatter(); idFmt.dateFormat = "yyyy-MM"
+
+        var periods: [SpendingPeriod] = []
+        for i in 0..<6 {
+            guard let start = cal.date(byAdding: .month, value: -i, to: monthStart(now)),
+                  let end = cal.date(byAdding: DateComponents(month: 1, second: -1), to: start) else { continue }
+            let yr = cal.component(.year, from: start)
+            periods.append(SpendingPeriod(
+                id: idFmt.string(from: start),
+                label: yr == currentYear ? month.string(from: start) : monthYr.string(from: start),
+                from: Int64(start.timeIntervalSince1970), to: Int64(end.timeIntervalSince1970)))
+        }
+        periods.append(SpendingPeriod(id: "all", label: "All time", from: 0, to: 4_102_444_800))
+        spendingPeriods = periods
+        if !periods.contains(where: { $0.id == selectedSpendingPeriod }) {
+            selectedSpendingPeriod = periods.first?.id ?? "all"   // current month
         }
     }
 
