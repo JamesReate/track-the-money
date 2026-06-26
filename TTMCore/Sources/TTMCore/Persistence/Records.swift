@@ -31,7 +31,8 @@ public struct AccountRecord: Codable, FetchableRecord, PersistableRecord {
     public var id: String
     public var connectionId: String
     public var sfinAccountId: String
-    public var name: String
+    public var name: String                  // from SimpleFIN (sync overwrites)
+    public var nickname: String? = nil       // user display name (sync preserves)
     public var currency: String
     public var accountClass: String          // column "class"
     public var subclass: String?
@@ -43,7 +44,7 @@ public struct AccountRecord: Codable, FetchableRecord, PersistableRecord {
     public var createdAt: Int64
 
     enum CodingKeys: String, CodingKey {
-        case id, name, currency, subclass, archived
+        case id, name, nickname, currency, subclass, archived
         case connectionId = "connection_id"
         case sfinAccountId = "sfin_account_id"
         case accountClass = "class"

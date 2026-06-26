@@ -82,14 +82,17 @@ public struct SpendingLine: Equatable, Sendable, Identifiable {
 
 public struct AccountSummary: Equatable, Sendable, Identifiable {
     public let id: String
-    public let name: String
+    public let name: String          // display name (nickname ?? syncedName)
+    public let syncedName: String    // the name SimpleFIN reports
+    public let isRenamed: Bool
     public let accountClass: AccountClass
     public let balance: Money
     public let currency: String
     public let archived: Bool
-    public init(id: String, name: String, accountClass: AccountClass, balance: Money, currency: String, archived: Bool) {
-        self.id = id; self.name = name; self.accountClass = accountClass
-        self.balance = balance; self.currency = currency; self.archived = archived
+    public init(id: String, name: String, syncedName: String, isRenamed: Bool,
+                accountClass: AccountClass, balance: Money, currency: String, archived: Bool) {
+        self.id = id; self.name = name; self.syncedName = syncedName; self.isRenamed = isRenamed
+        self.accountClass = accountClass; self.balance = balance; self.currency = currency; self.archived = archived
     }
 }
 
@@ -120,6 +123,9 @@ public protocol CoreFacade: Sendable {
     // Accounts
     func accounts() async throws -> [AccountSummary]
     func setAccountClass(accountId: String, accountClass: AccountClass) async throws
+    /// Set a display nickname (nil/empty reverts to the SimpleFIN name). The
+    /// account id is unchanged, so syncing continues unaffected.
+    func renameAccount(accountId: String, name: String?) async throws
 
     // Net worth
     func netWorthSummary() async throws -> NetWorthSummary

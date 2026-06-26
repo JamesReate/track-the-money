@@ -10,9 +10,7 @@ struct TransactionsView: View {
         NavigationStack {
             List {
                 ForEach(model.recentTransactions, id: \.id) { txn in
-                    Button { selected = txn } label: { row(txn) }
-                        .buttonStyle(.plain)
-                        .listRowBackground(Brand.surface)
+                    TxnRow(model: model, txn: txn) { selected = txn }
                 }
             }
             .statementBackground()
@@ -24,64 +22,118 @@ struct TransactionsView: View {
             }
         }
     }
+}
 
-    private func row(_ txn: TransactionRecord) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(txn.description).lineLimit(1)
-                HStack(spacing: 6) {
-                    if let posted = txn.postedAt {
-                        Text(Date(timeIntervalSince1970: TimeInterval(posted)), format: .dateTime.month().day())
+/// One transaction row. Reflects the current category and glows briefly when it
+/// was just (re)categorized.
+private struct TxnRow: View {
+    @Bindable var model: AppModel
+    let txn: TransactionRecord
+    let onTap: () -> Void
+    @State private var glow = false
+
+    private var isCategorized: Bool { txn.categoryId != nil }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(txn.description).foregroundStyle(Brand.ink).lineLimit(1)
+                    HStack(spacing: 6) {
+                        if let posted = txn.postedAt {
+                            Text(Date(timeIntervalSince1970: TimeInterval(posted)), format: .dateTime.month().day())
+                        }
+                        Text(model.categoryName(txn.categoryId))
+                            .foregroundStyle(isCategorized ? Brand.evergreen : Brand.slate)
+                        if txn.pending { Text("PENDING").foregroundStyle(.orange) }
+                        if txn.isTransfer { Text("TRANSFER") }
                     }
-                    Text(model.categoryName(txn.categoryId))
-                    if txn.pending { Text("PENDING").foregroundStyle(.orange) }
-                    if txn.isTransfer { Text("TRANSFER") }
+                    .font(.caption)
+                    .foregroundStyle(Brand.slate)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Spacer()
+                MoneyText(Money(cents: txn.amountCents), size: 16,
+                          color: txn.amountCents < 0 ? Brand.ink : Brand.evergreen)
             }
-            Spacer()
-            MoneyText(Money(cents: txn.amountCents), size: 16,
-                      color: txn.amountCents < 0 ? Brand.ink : Brand.evergreen)
+            .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+        .listRowBackground(glow ? Brand.evergreen.opacity(0.14) : Brand.surface)
+        .onChange(of: model.lastCategorized) { _, id in
+            guard id == txn.id else { return }
+            withAnimation(.easeIn(duration: 0.12)) { glow = true }
+            Task {
+                try? await Task.sleep(for: .seconds(0.85))
+                withAnimation(.easeOut(duration: 0.9)) { glow = false }
+                if model.lastCategorized == txn.id { model.lastCategorized = nil }
+            }
+        }
     }
 }
 
-/// Sheet to set a category on one transaction, or turn it into a reusable rule.
+/// Tap a category to apply it immediately. The "Also create a rule" toggle lets
+/// one tap both categorize this transaction and auto-categorize future ones.
 private struct CategorizeSheet: View {
     @Bindable var model: AppModel
     let txn: TransactionRecord
     @Environment(\.dismiss) private var dismiss
-    @State private var categoryId: String = ""
+    @State private var makeRule = false
 
     private var ruleText: String { (txn.payee?.isEmpty == false ? txn.payee! : txn.description) }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Transaction") {
-                    Text(txn.description)
-                    Text(Money(cents: txn.amountCents).formatted()).foregroundStyle(.secondary)
-                }
-                Section("Category") {
-                    Picker("Category", selection: $categoryId) {
-                        Text("— none —").tag("")
-                        ForEach(model.categories) { c in Text(c.name).tag(c.id) }
-                    }
-                }
+            List {
                 Section {
-                    Button("Set category for this transaction") {
-                        Task { await model.setCategory(transactionId: txn.id, categoryId: categoryId.isEmpty ? nil : categoryId); dismiss() }
-                    }.disabled(categoryId.isEmpty)
-                    Button("Create rule: contains “\(ruleText)” → category") {
-                        Task { await model.createRule(fromText: ruleText, categoryId: categoryId); dismiss() }
-                    }.disabled(categoryId.isEmpty || ruleText.isEmpty)
+                    Text(txn.description)
+                    MoneyText(Money(cents: txn.amountCents), size: 16, color: Brand.ink)
+                } header: { Eyebrow("Transaction") }
+                .listRowBackground(Brand.surface)
+
+                Section {
+                    Toggle(isOn: $makeRule) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Also create a rule")
+                            Text("Auto-categorize future “\(ruleText)”")
+                                .font(.caption).foregroundStyle(Brand.slate)
+                        }
+                    }.tint(Brand.evergreen)
                 }
+                .listRowBackground(Brand.surface)
+
+                Section {
+                    ForEach(model.categories) { category in
+                        Button { apply(category.id) } label: {
+                            HStack {
+                                Text(category.name).foregroundStyle(Brand.ink)
+                                Spacer()
+                                if txn.categoryId == category.id {
+                                    Image(systemName: "checkmark").foregroundStyle(Brand.evergreen)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                    }
+                    if txn.categoryId != nil {
+                        Button("Clear category", role: .destructive) { apply(nil) }
+                    }
+                } header: { Eyebrow("Choose a category") }
+                .listRowBackground(Brand.surface)
             }
-            .navigationTitle("Categorize")
+            .statementBackground()
+            .inlineNavTitle("Categorize")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-            .onAppear { categoryId = txn.categoryId ?? "" }
+        }
+    }
+
+    private func apply(_ categoryId: String?) {
+        Task {
+            if makeRule, let categoryId {
+                await model.createRule(fromText: ruleText, categoryId: categoryId, highlight: txn.id)
+            } else {
+                await model.setCategory(transactionId: txn.id, categoryId: categoryId)
+            }
+            dismiss()
         }
     }
 }

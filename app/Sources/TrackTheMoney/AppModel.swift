@@ -20,6 +20,8 @@ public final class AppModel {
     public var spending: [SpendingLine] = []
     public var statusMessage = ""
     public var isSyncing = false
+    /// Transaction id just (re)categorized — drives the row glow highlight.
+    public var lastCategorized: String?
 
     public init(core: CoreFacade) { self.core = core }
 
@@ -57,10 +59,11 @@ public final class AppModel {
     public func setCategory(transactionId: String, categoryId: String?) async {
         try? await core.setCategory(transactionId: transactionId, categoryId: categoryId)
         await refresh()
+        lastCategorized = transactionId
     }
 
     /// Build a "description contains <payee>" rule → category, apply to past + future.
-    public func createRule(fromText text: String, categoryId: String) async {
+    public func createRule(fromText text: String, categoryId: String, highlight transactionId: String? = nil) async {
         let id = "rule-\(UUID().uuidString.prefix(8))"
         let rule = Rule(id: id, name: text, categoryId: categoryId, priority: 100, enabled: true,
                         condition: Condition(op: .and, clauses: [
@@ -68,6 +71,7 @@ public final class AppModel {
                         ]))
         try? await core.upsertRule(rule, apply: .backfill)
         await refresh()
+        lastCategorized = transactionId
     }
 
     public func toggleRule(_ rule: Rule) async {
@@ -136,6 +140,12 @@ public final class AppModel {
 
     public func setClass(accountId: String, to cls: AccountClass) async {
         try? await core.setAccountClass(accountId: accountId, accountClass: cls)
+        await refresh()
+    }
+
+    /// Rename an account for display only (nil/empty reverts to the bank name).
+    public func rename(accountId: String, to name: String?) async {
+        try? await core.renameAccount(accountId: accountId, name: name)
         await refresh()
     }
 

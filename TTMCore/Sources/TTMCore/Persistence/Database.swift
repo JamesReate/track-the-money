@@ -181,6 +181,13 @@ public final class Database: @unchecked Sendable {
             """)
         }
 
+        migrator.registerMigration("v3_account_nickname") { db in
+            // User-chosen display name. Never overwritten by sync (which only
+            // updates `name` from SimpleFIN). The account's id / sfin_account_id
+            // are untouched, so syncing continues unchanged.
+            try db.execute(sql: "ALTER TABLE accounts ADD COLUMN nickname TEXT")
+        }
+
         // ai_suggestions lands in a later migration with the AI (paid) feature.
         return migrator
     }

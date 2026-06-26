@@ -3,6 +3,7 @@ import TTMCore
 
 struct AccountsView: View {
     @Bindable var model: AppModel
+    @State private var renaming: AccountSummary?
 
     var body: some View {
         NavigationStack {
@@ -11,6 +12,7 @@ struct AccountsView: View {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(account.name).font(.system(size: 16, weight: .medium)).foregroundStyle(Brand.ink)
+                                .lineLimit(1)
                             Menu {
                                 Picker("Class", selection: classBinding(account)) {
                                     ForEach(AccountClass.allCases, id: \.self) { cls in
@@ -34,10 +36,19 @@ struct AccountsView: View {
                     }
                     .padding(.vertical, 4)
                     .listRowBackground(Brand.surface)
+                    .contentShape(Rectangle())
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        Button { renaming = account } label: { Label("Rename", systemImage: "pencil") }
+                            .tint(Brand.brass)
+                    }
+                    .contextMenu {
+                        Button { renaming = account } label: { Label("Rename", systemImage: "pencil") }
+                    }
                 }
             }
             .statementBackground()
             .inlineNavTitle("Accounts")
+            .sheet(item: $renaming) { account in RenameAccountSheet(model: model, account: account) }
             .overlay { if model.accounts.isEmpty { ContentUnavailableView("No accounts", systemImage: "building.columns", description: Text("Add a SimpleFIN connection in Settings.")) } }
         }
     }
@@ -67,6 +78,43 @@ struct AccountsView: View {
         case .income: return "Income"
         case .excluded: return "Excluded"
         case .unclassified: return "Unclassified"
+        }
+    }
+}
+
+/// Rename an account for display only. The account id is unchanged, so syncing
+/// with SimpleFIN continues unaffected.
+private struct RenameAccountSheet: View {
+    @Bindable var model: AppModel
+    let account: AccountSummary
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Account name", text: $text)
+                } header: { Eyebrow("Display name") }
+                footer: {
+                    Text("Syncs as “\(account.syncedName)”. Renaming is local and won’t affect syncing.")
+                }
+                if account.isRenamed {
+                    Button("Reset to bank name", role: .destructive) {
+                        Task { await model.rename(accountId: account.id, to: nil); dismiss() }
+                    }
+                }
+            }
+            .inlineNavTitle("Rename Account")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task { await model.rename(accountId: account.id, to: text); dismiss() }
+                    }.disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .onAppear { text = account.name }
         }
     }
 }

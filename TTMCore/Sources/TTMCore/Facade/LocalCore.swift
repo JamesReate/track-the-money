@@ -62,15 +62,23 @@ public final class LocalCore: CoreFacade {
     // MARK: Accounts
 
     public func accounts() async throws -> [AccountSummary] {
-        try store.allAccounts().map {
-            AccountSummary(id: $0.id, name: $0.name,
-                           accountClass: AccountClass(rawValue: $0.accountClass) ?? .unclassified,
-                           balance: Money(cents: $0.balanceCents), currency: $0.currency, archived: $0.archived)
+        try store.allAccounts().map { rec in
+            let nick = rec.nickname?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let renamed = !(nick?.isEmpty ?? true)
+            return AccountSummary(
+                id: rec.id, name: renamed ? nick! : rec.name, syncedName: rec.name, isRenamed: renamed,
+                accountClass: AccountClass(rawValue: rec.accountClass) ?? .unclassified,
+                balance: Money(cents: rec.balanceCents), currency: rec.currency, archived: rec.archived)
         }
     }
 
     public func setAccountClass(accountId: String, accountClass: AccountClass) async throws {
         try store.setAccountClass(id: accountId, accountClass: accountClass.rawValue)
+    }
+
+    public func renameAccount(accountId: String, name: String?) async throws {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        try store.setAccountNickname(id: accountId, nickname: (trimmed?.isEmpty ?? true) ? nil : trimmed)
     }
 
     // MARK: Net worth

@@ -53,6 +53,12 @@ public struct Store: Sendable {
         }
     }
 
+    public func setAccountNickname(id: String, nickname: String?) throws {
+        try queue.write { db in
+            try db.execute(sql: "UPDATE accounts SET nickname = ? WHERE id = ?", arguments: [nickname, id])
+        }
+    }
+
     /// Insert a balance snapshot, ignoring the (account_id, balance_date) dupe.
     public func insertSnapshotIfAbsent(_ s: BalanceSnapshotRecord) throws {
         try queue.write { db in
