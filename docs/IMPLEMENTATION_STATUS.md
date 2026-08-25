@@ -91,8 +91,18 @@ Swift 6.3 toolchain.
   2 UI smoke tests.
 
 ### Next up (resume here)
-1. ⏭️ Run live on Simulator/device with a real SimpleFIN token (Settings → paste
-   setup token). The network path is verified; this is the end-to-end proof.
+1. 🟡 **Live SimpleFIN verification — engine done, app run remaining.**
+   `TTMCoreTests/LiveSimpleFINTests` (opt-in, `TTM_LIVE=1`) now proves the whole
+   path against a **real bridge over the real network**: claim a setup token →
+   Access URL held outside the DB → `/accounts` with Basic auth → v2 decode →
+   sync → snapshots → facade queries, plus exact decimal→cents on every real
+   balance and amount, and no duplicate `(account_id, sfin_txn_id)` across
+   re-syncs. Green on 3 consecutive runs.
+   **Still to do:** run the actual app with a *signed* build and a real
+   institution token. `LiveSimpleFINUITests` drives that flow but needs
+   DEVELOPMENT_TEAM set — unsigned builds fail the Keychain write with `-34018`
+   (`errSecMissingEntitlement`), so the claim never persists. Real-bank data is
+   also what settles the per-institution debt-sign question (ADR-0012).
 2. Scheduled background refresh (`BGAppRefreshTask` iOS / timer macOS) +
    per-connection sync status surfacing (needs_auth/error) in Settings.
 3. Rule priority editing; "apply mode" choice on rule create. (Categories CRUD UI ✅ done.)

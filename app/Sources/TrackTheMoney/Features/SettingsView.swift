@@ -11,6 +11,9 @@ struct SettingsView: View {
                 Section {
                     TextField("Setup token", text: $setupToken, axis: .vertical)
                         .lineLimit(1...4)
+                        // A vertical-axis TextField exposes its placeholder as
+                        // placeholderValue, not a label — UI tests need a handle.
+                        .accessibilityIdentifier("setupToken")
                     Button("Add connection") {
                         let token = setupToken
                         setupToken = ""

@@ -122,6 +122,25 @@ xcodebuild test -scheme TrackTheMoney -only-testing:TrackTheMoneyUITests
   below the fold (see `BackupUITests.scrollTo`).
 - Known-flaky before this work: `CategorizeUITests/testSearchFiltersCategoryList`
   fails on the category picker not rendering in time. Unrelated to backup.
+- **Live SimpleFIN tests** (opt-in, hit the real network — skipped by default):
+  ```bash
+  cd TTMCore && TTM_LIVE=1 swift test --filter LiveSimpleFINTests   # engine: claim→fetch→sync
+  TEST_RUNNER_TTM_LIVE=1 xcodebuild test -scheme TrackTheMoney \
+    -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+    -only-testing:TrackTheMoneyUITests/LiveSimpleFINUITests        # UI: needs a SIGNED build
+  ```
+  Both default to SimpleFIN's demo bank; pass `TTM_SETUP_TOKEN` /
+  `TEST_RUNNER_TTM_SETUP_TOKEN` to use a real bridge (tokens are single-use).
+  The UI one needs DEVELOPMENT_TEAM set: unsigned builds have no keychain access
+  group, so the claim fails with `-34018` (`errSecMissingEntitlement`) before it
+  can store the Access URL. That's a signing artifact, not a bug.
+- The demo bridge synthesizes its response from the query window: no
+  `start-date`/`end-date` returns a small canned sample with a *future*
+  `balance-date`; with a window (what `SyncEngine` sends) it generates ~170
+  transactions and a balance dated now. Two fetches with different parameters
+  legitimately disagree — don't assert one against the other, and don't assert
+  "re-sync finds 0 new" (the demo bank invents transactions as time passes; the
+  real invariant is that `(account_id, sfin_txn_id)` stays unique).
 
 ## Backup & restore (shipped)
 
