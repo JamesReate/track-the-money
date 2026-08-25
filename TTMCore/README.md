@@ -5,7 +5,7 @@ The pure, UI-independent domain core for Track The Money (Swift package).
 **Hard rule:** no SwiftUI/UIKit/AppKit imports here, and the OS is reached only
 through injected protocols (`Clock`, `SecretStore`, `NetworkClient`). This keeps
 the engines unit-testable and the future Rust port bounded (see
-[`../TECH_DESIGN.md`](../TECH_DESIGN.md) §13).
+[`../docs/TECH_DESIGN.md`](../docs/TECH_DESIGN.md) §13).
 
 ## Modules
 

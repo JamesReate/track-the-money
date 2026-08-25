@@ -1,12 +1,12 @@
 # Categorization Improvement Plan
 
-> Companion to [PLAN.md](PLAN.md) §4 and [TECH_DESIGN.md](TECH_DESIGN.md) §5/§7/§8.
+> Companion to [PLAN.md](../PLAN.md) §4 and [TECH_DESIGN.md](../TECH_DESIGN.md) §5/§7/§8.
 > Scope: upgrade the categorization experience — two-level categories, create-on-the-fly,
 > auto-assigned colors, and a categorized/uncategorized filter — without disturbing the
 > deterministic rules engine or the SimpleFIN-is-truth contract.
 >
 > **Status:** ✅ Implemented (all 6 phases). 35 core tests pass; macOS + iOS Simulator
-> builds succeed. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
+> builds succeed. See [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md).
 > **Last updated:** 2026-06-26
 
 ---

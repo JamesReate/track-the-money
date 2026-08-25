@@ -62,7 +62,7 @@ Swift 6.3 toolchain.
   auto-applies** on category tap (+ optional "Also create a rule" toggle); row
   **reflects new category immediately + glows**; **Spending month filter** (last
   6 months + All time chips, defaults to current month).
-- ✅ **Categorization upgrade** (see [CATEGORIZATION_PLAN.md](CATEGORIZATION_PLAN.md)) —
+- ✅ **Categorization upgrade** (see [CATEGORIZATION_PLAN.md](plans/CATEGORIZATION_PLAN.md)) —
   **two-level categories** (groups → leaves; transactions on leaves), seeded grouped
   tree incl. new **Entertainment** group, reconciled idempotently by
   `DefaultData.ensureCategories` (adds structure to existing installs, never clobbers
