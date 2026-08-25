@@ -22,7 +22,7 @@ decided and why. New feature plans go here as `<FEATURE>_PLAN.md`.
 | Plan | Status |
 |---|---|
 | [CATEGORIZATION_PLAN.md](plans/CATEGORIZATION_PLAN.md) | ✅ Shipped — category tree, rules, on-device AI suggestions. |
-| [DATA_PORTABILITY_PLAN.md](plans/DATA_PORTABILITY_PLAN.md) | 📋 Approved, not yet built — `.ttmbackup` export/restore. |
+| [DATA_PORTABILITY_PLAN.md](plans/DATA_PORTABILITY_PLAN.md) | ✅ Shipped — `.ttmbackup` export/restore with undo. |
 
 ## Elsewhere in the repo
 

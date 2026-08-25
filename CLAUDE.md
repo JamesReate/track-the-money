@@ -12,7 +12,8 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
 - `TTMCore/` — pure Swift package, the entire engine. `Sources/TTMCore/`:
   - `Money/` — `Money` value type; `Time/` — UTC unix-seconds helpers.
   - `Persistence/` — `Database` (GRDB, migrations), `Store` (DAO), `Records`,
-    `DefaultData` (idempotent seed: categories tree + default interest rule).
+    `DefaultData` (idempotent seed: categories tree + default interest rule),
+    `BackupManager` (.ttmbackup export/validate/restore).
   - `SimpleFIN/` — Codable protocol models + `LiveSimpleFINClient`.
   - `Sync/` — `SyncEngine` (idempotent upsert on `(account_id, sfin_txn_id)`,
     balance snapshots, pending→posted reconcile), `Transfers` auto-detection.
@@ -29,7 +30,7 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
   design system), `Features/` (one view per screen), `Platform/`
   (`KeychainSecretStore`, `URLSessionNetworkClient`,
   `FoundationModelsCategorizer`, `HeuristicOnDeviceCategorizer`).
-- `app/UITests/` — XCUITest target (`CategorizeUITests.swift`).
+- `app/UITests/` — XCUITest target (`CategorizeUITests`, `BackupUITests`).
 - `project.yml` — XcodeGen spec (source of truth for the Xcode project).
 - `docs/` — **all documentation lives here**; only `README.md` and `CLAUDE.md`
   stay at the repo root. `docs/IMPLEMENTATION_STATUS.md` (running status doc —
@@ -40,8 +41,8 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
   implementation and kept as the record of what was decided. New plans go here
   as `<FEATURE>_PLAN.md`; don't put them at the repo root.
   - `CATEGORIZATION_PLAN.md` — shipped.
-  - `DATA_PORTABILITY_PLAN.md` — backup/restore, **approved and unbuilt**
-    (see "Next up" below).
+  - `DATA_PORTABILITY_PLAN.md` — backup/restore, shipped (see below); its §9
+    records what implementation turned up that the plan didn't foresee.
 
 ## Architecture rules (do not break)
 
@@ -75,7 +76,7 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
 ## Build & test
 
 ```bash
-cd TTMCore && swift test                 # engine tests (39, XCTest)
+cd TTMCore && swift test                 # engine tests (51, XCTest)
 cd app && swift build                    # SwiftUI compiles headlessly (macOS host)
 cd app && swift run TrackTheMoney        # run the Mac app from CLI
 xcodegen generate                        # project.yml → TrackTheMoney.xcodeproj
@@ -101,15 +102,19 @@ xcodebuild test -scheme TrackTheMoney -only-testing:TrackTheMoneyUITests
 
 - Engine: XCTest in `TTMCore/Tests/TTMCoreTests/` — pure, in-memory/temp-path,
   no UI. Add tests here for any Store/facade/math change.
-- UI: XCUITest in `app/UITests/CategorizeUITests.swift`; each test launches with
-  `["-resetStore", "-sampleData", "-tab", "transactions"]` (+ `-stubAI` where AI
+- UI: XCUITest in `app/UITests/`; each test launches with
+  `["-resetStore", "-sampleData", "-tab", "<tab>"]` (+ `-stubAI` where AI
   determinism matters) and drives real taps on the Simulator or Mac. macOS rows
-  can render as single combined-label buttons — match by label substring.
+  can render as single combined-label buttons — match by label substring. On
+  iPhone the app's 9 tabs collapse into "More", and `Form` rows render lazily —
+  scroll `app.collectionViews.firstMatch`, not the app window, to reach rows
+  below the fold (see `BackupUITests.scrollTo`).
+- Known-flaky before this work: `CategorizeUITests/testSearchFiltersCategoryList`
+  fails on the category picker not rendering in time. Unrelated to backup.
 
-## Next up: backup & restore (planned, not implemented)
+## Backup & restore (shipped)
 
-`docs/plans/DATA_PORTABILITY_PLAN.md` is approved — all eight decisions
-resolved, implement exactly as written. The shape:
+Per `docs/plans/DATA_PORTABILITY_PLAN.md`; phases 1–2 implemented. The shape:
 
 - **Format:** single-file SQLite snapshot via `VACUUM INTO` through the live
   `DatabaseQueue` (consistent, WAL-free, carries FTS shadow tables and
@@ -131,6 +136,10 @@ resolved, implement exactly as written. The shape:
   must route the user to re-paste a setup token.
 - Deferred: CSV interop export, automatic/scheduled backups, iCloud beyond what
   the system pickers already offer.
+- Gotcha found in testing: a cleanly-closed store is still WAL-mode and can't be
+  opened read-only without its `-shm`, so `inspect` falls back to a private copy.
+  A copy taken while the app was running (content still in the `-wal`) is
+  correctly refused rather than restored as empty.
 
 ## Gotchas
 

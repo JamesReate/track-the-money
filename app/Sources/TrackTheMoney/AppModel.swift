@@ -10,6 +10,14 @@ public struct SpendingPeriod: Identifiable, Equatable, Sendable {
     public let to: UnixTime
 }
 
+/// A validated backup awaiting the user's confirmation, held as a private copy
+/// inside our container (the picker's security scope ends when it returns).
+public struct PendingRestore: Identifiable, Sendable {
+    public let id = UUID()
+    public let url: URL
+    public let info: BackupInfo
+}
+
 /// Observable view-model bridging SwiftUI to the `CoreFacade`. Owns one facade
 /// instance; all screens read its published state and call its async actions.
 @MainActor
@@ -39,6 +47,12 @@ public final class AppModel {
     public var uncategorizedCount = 0
     /// Transaction count per category id (for the Categories manager).
     public var categoryCounts: [String: Int] = [:]
+    /// Snapshot written to temp, waiting for the system exporter to save it.
+    public var pendingExport: URL?
+    /// Validated backup awaiting confirmation in the restore sheet.
+    public var pendingRestore: PendingRestore?
+    /// A pre-restore copy exists, so "Undo last restore" is offered.
+    public var canUndoRestore = false
 
     public init(core: CoreFacade) { self.core = core }
 
@@ -68,6 +82,7 @@ public final class AppModel {
     }
 
     public func refresh() async {
+        canUndoRestore = await core.canUndoRestore()
         do {
             netWorth = try await core.netWorthSummary()
             series = try await core.netWorthSeries(from: nil, to: nil)
@@ -358,6 +373,85 @@ public final class AppModel {
     public func rename(accountId: String, to name: String?) async {
         try? await core.renameAccount(accountId: accountId, name: name)
         await refresh()
+    }
+
+    // MARK: Backup & restore (docs/plans/DATA_PORTABILITY_PLAN.md)
+
+    /// Snapshot the store to a temp file for the system exporter to write out.
+    public func startExport() async {
+        do { pendingExport = try await core.exportBackup() }
+        catch { statusMessage = Self.message(error) }
+    }
+
+    /// Clean up the temp snapshot once the exporter is done with it — on
+    /// cancellation too, so nothing is left behind in the temp directory.
+    public func finishExport(_ result: Result<URL, Error>) {
+        if let url = pendingExport { try? FileManager.default.removeItem(at: url) }
+        pendingExport = nil
+        switch result {
+        case .success(let saved):
+            statusMessage = "Backup saved as \(saved.lastPathComponent)"
+        case .failure(let error):
+            let cancelled = (error as NSError).code == NSUserCancelledError
+            statusMessage = cancelled ? "" : "Backup failed: \(Self.message(error))"
+        }
+    }
+
+    /// Copy the picked file into our container, validate it, and hold it for
+    /// confirmation. Nothing about the live store is touched here.
+    public func prepareRestore(from picked: URL) async {
+        let fm = FileManager.default
+        let scoped = picked.startAccessingSecurityScopedResource()
+        defer { if scoped { picked.stopAccessingSecurityScopedResource() } }
+
+        let temp = fm.temporaryDirectory
+            .appendingPathComponent("ttm-restore-\(UUID().uuidString).\(BackupManager.fileExtension)")
+        do {
+            try fm.copyItem(at: picked, to: temp)
+            pendingRestore = PendingRestore(url: temp, info: try await core.inspectBackup(at: temp))
+        } catch {
+            try? fm.removeItem(at: temp)
+            statusMessage = Self.message(error)
+        }
+    }
+
+    public func cancelRestore() {
+        if let pending = pendingRestore { try? FileManager.default.removeItem(at: pending.url) }
+        pendingRestore = nil
+    }
+
+    /// Replace everything with the confirmed backup, then reload every screen.
+    public func confirmRestore() async {
+        guard let pending = pendingRestore else { return }
+        pendingRestore = nil
+        defer { try? FileManager.default.removeItem(at: pending.url) }
+        do {
+            let info = try await core.restoreBackup(from: pending.url)
+            canUndoRestore = await core.canUndoRestore()
+            await refresh()
+            // Secrets live in the Keychain, never the backup — a file from
+            // another device restores the data but not the connection.
+            statusMessage = "Restored \(info.transactions) transactions. If this backup came from another device, add your SimpleFIN connection again to resume syncing."
+        } catch {
+            statusMessage = Self.message(error)
+        }
+    }
+
+    public func undoRestore() async {
+        do {
+            try await core.undoRestore()
+            canUndoRestore = await core.canUndoRestore()
+            await refresh()
+            statusMessage = "Restore undone — your previous data is back."
+        } catch {
+            statusMessage = Self.message(error)
+        }
+    }
+
+    /// BackupError and friends carry user-facing copy; anything else falls back
+    /// to the raw description.
+    private static func message(_ error: Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? "\(error)"
     }
 
     private static func databasePath() throws -> String {

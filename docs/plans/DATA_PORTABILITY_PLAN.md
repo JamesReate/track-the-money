@@ -5,9 +5,10 @@
 > **load** it back (import/restore) — on the same device or a new one — without
 > breaking the CoreFacade boundary or TTMCore purity.
 >
-> **Status:** ✅ Plan approved — all §5 decisions resolved (2026-08-24, James).
-> Ready for implementation (Phases 1–2; Phase 3 deferred). Nothing implemented yet.
-> **Last updated:** 2026-08-24
+> **Status:** ✅ Shipped — Phase 1 (engine) and Phase 2 (Settings UI) implemented
+> as specified; all §5 decisions resolved (2026-08-24, James). Phase 3 stays
+> deferred by D6a/D7a. See §9 for what the implementation added beyond the plan.
+> **Last updated:** 2026-08-25
 
 ---
 
@@ -436,3 +437,41 @@ Original options preserved below for rationale; recommended default marked ★.
 | User expects backup to restore bank *connection* on new device | Explicit post-restore messaging (§4.5); Settings copy on the export row: "Backups don't include your SimpleFIN connection" |
 | Backup file left in temp dir | Delete on exporter completion/cancel; temp dir is OS-purged anyway |
 | Future container/format change | Restore sniffs content (§4.4), so a later zip/manifest format is detectable and old `.ttmbackup` files stay restorable |
+
+---
+
+## 9. Implementation notes (2026-08-25)
+
+Built as specified. Three things the plan didn't anticipate, all test-driven:
+
+- **Read-only opens can fail on a valid store.** A cleanly-closed database still
+  carries `journal_mode=WAL` in its header, and SQLite refuses a read-only open
+  when the `-shm` sidecar is absent. Our own exports are WAL-free so the fast
+  path holds, but a store copied by hand hit this. `inspect` now falls back to
+  validating a private copy rather than reporting a good file as damaged
+  (`BackupManager.openForReading`).
+- **A copy taken from a running app is refused.** Grabbing `ttm.db` while the
+  app is open leaves its contents behind in the `-wal`; the copy looks
+  schema-less. The table check catches it, so the user gets "not a Track The
+  Money backup" instead of a silently empty restore.
+- **`Database.migrator` is now built through a `register` helper** so tests can
+  truncate it (`migrator(through:)`) and build a genuine v1-era fixture to
+  restore. This replaced the plan's vaguer "build fixture by running a truncated
+  migrator".
+
+GRDB 6.29.3 API names were all verified against the vendored source before use:
+`vacuum(into:)`, `DatabaseQueue.close()`, `DatabaseMigrator.migrations` /
+`appliedIdentifiers(_:)`. `hasBeenSuperseded(_:)` exists too, but `inspect`
+computes the unknown-identifier set directly so the error can name the offending
+migrations.
+
+Phase 2 declares the UTType through an `info:` block in `project.yml`; the
+generated partial plist merges with `GENERATE_INFOPLIST_FILE`, verified by
+reading `UTExportedTypeDeclarations` back out of the built app bundle.
+
+**Not built (unchanged decisions):** CSV export (D7a), automatic/scheduled
+backups (D6a), merge-on-import (§1 non-goal). One known gap: the post-restore
+"reconnect SimpleFIN" guidance is shown unconditionally rather than only when a
+restored connection's secret is actually missing — the facade has no
+connection-listing method to check against, and adding one wasn't in scope.
+

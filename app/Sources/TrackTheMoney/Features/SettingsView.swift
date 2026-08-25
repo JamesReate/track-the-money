@@ -42,6 +42,8 @@ struct SettingsView: View {
                 } header: { Eyebrow("Try it") }
                 .listRowBackground(Brand.surface)
 
+                BackupSection(model: model)
+
                 if !model.statusMessage.isEmpty {
                     Section { Text(model.statusMessage).font(.callout) }
                         header: { Eyebrow("Status") }

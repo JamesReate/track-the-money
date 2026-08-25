@@ -36,6 +36,9 @@ transactions, your net worth — on your device, and nowhere else.
   AI suggestions and one-tap approve.
 - **Real Estate** — properties, value history, linked debt, computed equity.
 - **Debt & Interest** — interest detection, payment splits, cost-of-debt rollups.
+- **Backup & restore** — export everything to a single `.ttmbackup` file and
+  restore it on any device, with a one-tap undo. Your SimpleFIN connection isn't
+  in it: that stays in the Keychain.
 
 ## Architecture at a glance
 
@@ -46,7 +49,7 @@ track-the-money
 ├── TTMCore/                  Pure Swift package — no SwiftUI/UIKit/AppKit
 │   └── Sources/TTMCore/
 │       ├── Money/            Int64 cents, exact Decimal parsing
-│       ├── Persistence/      GRDB database, migrations, Store DAO, seed data
+│       ├── Persistence/      GRDB database, migrations, Store DAO, seed, backups
 │       ├── SimpleFIN/        Protocol models + live client
 │       ├── Sync/             Idempotent sync engine, transfer detection
 │       ├── Rules/            Condition tree + first-match rule engine
@@ -64,7 +67,7 @@ track-the-money
 
 The app talks only to the `CoreFacade` protocol. `TTMCore` reaches the OS only
 through injected protocols (`SecretStore`, `NetworkClient`, `Clock`,
-`OnDeviceCategorizer`), so the whole engine is unit-testable headlessly — 39 tests
+`OnDeviceCategorizer`), so the whole engine is unit-testable headlessly — 51 tests
 and counting. The platform implementations (Keychain, URLSession, Apple's
 Foundation Models) live in the app layer and are injected at launch.
 
@@ -84,7 +87,7 @@ My Mac. Set your Team under Signing & Capabilities to run on a device.
 Headless iteration, no Xcode UI needed:
 
 ```bash
-cd TTMCore && swift test          # the whole engine, 39 tests
+cd TTMCore && swift test          # the whole engine, 51 tests
 cd app && swift run TrackTheMoney # launch the Mac app from the CLI
 ```
 
@@ -122,4 +125,4 @@ All documentation lives in [`docs/`](docs/); feature plans live in
 - [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) — running status / resume pointer
 - [BUILD.md](docs/BUILD.md) — build matrix
 - [plans/CATEGORIZATION_PLAN.md](docs/plans/CATEGORIZATION_PLAN.md) — categorization design (shipped)
-- [plans/DATA_PORTABILITY_PLAN.md](docs/plans/DATA_PORTABILITY_PLAN.md) — backup & restore (approved, not yet built)
+- [plans/DATA_PORTABILITY_PLAN.md](docs/plans/DATA_PORTABILITY_PLAN.md) — backup & restore (shipped)
