@@ -13,6 +13,17 @@ The repo root keeps only [`README.md`](../README.md) (project landing page) and
 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Running status and resume pointer — what's done, what's next. Update it when you land work. |
 | [BUILD.md](BUILD.md) | Build matrix: XcodeGen, `xcodebuild` invocations, iOS/macOS targets. |
 
+## Decisions
+
+[`adr/`](adr/) holds one Architecture Decision Record per decision — the context,
+the choice, and what it costs. Records are immutable: when a decision changes,
+add one that supersedes it. Start at [`adr/README.md`](adr/README.md) for the
+indexed list; copy [`adr/TEMPLATE.md`](adr/TEMPLATE.md) to add one.
+
+The split between the folders: an **ADR** records *what was decided and why*; a
+**plan** records *how a feature will be built*. Plans generate ADRs — the eight
+locked decisions in the backup plan became ADR-0018 through ADR-0020.
+
 ## Plans
 
 [`plans/`](plans/) holds per-feature design documents — one per substantial

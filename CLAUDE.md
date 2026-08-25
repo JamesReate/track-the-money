@@ -37,40 +37,51 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
   update it when you land work; it's the resume pointer), `docs/PLAN.md`
   (product), `docs/TECH_DESIGN.md` (architecture), `docs/BUILD.md` (build
   matrix), `docs/README.md` (index of the above).
+- `docs/adr/` — **one Architecture Decision Record per decision** (`NNNN-slug.md`,
+  indexed in `docs/adr/README.md`). Read these first for *why* the code is shaped
+  the way it is; the "Architecture rules" below are the enforcement, the ADRs are
+  the reasoning. **Records are immutable** — when a decision changes, add a new
+  ADR that supersedes or amends the old one; never rewrite one. Copy
+  `docs/adr/TEMPLATE.md` and take the next number.
 - `docs/plans/` — one design doc per substantial feature, written before
   implementation and kept as the record of what was decided. New plans go here
-  as `<FEATURE>_PLAN.md`; don't put them at the repo root.
+  as `<FEATURE>_PLAN.md`; don't put them at the repo root. A plan's locked
+  decisions should graduate into ADRs once the feature ships.
   - `CATEGORIZATION_PLAN.md` — shipped.
   - `DATA_PORTABILITY_PLAN.md` — backup/restore, shipped (see below); its §9
     records what implementation turned up that the plan didn't foresee.
 
 ## Architecture rules (do not break)
 
-- **TTMCore stays pure.** No SwiftUI/UIKit/AppKit imports, no Apple ML
+Each rule below is the enforcement of a recorded decision — the bracketed ADR has
+the reasoning and the cost. If a rule seems wrong, read its ADR before changing
+anything; if it *is* wrong, write a superseding ADR rather than quietly breaking it.
+
+- **TTMCore stays pure.** [[ADR-0006](docs/adr/0006-ttmcore-pure-package.md)] No SwiftUI/UIKit/AppKit imports, no Apple ML
   frameworks, no direct Keychain/URLSession/Date. The OS is reached only through
   injected protocols: `Clock`, `SecretStore`, `NetworkClient`,
   `OnDeviceCategorizer` (all in `Support/Protocols.swift` and
   `Classify/OnDeviceCategorizer.swift`). Platform implementations live in
   `app/Sources/TrackTheMoney/Platform/` and are injected in `AppModel.live()`.
-- **The app talks only to `CoreFacade`** — never GRDB, `Store`, `SyncEngine`, or
+- **The app talks only to `CoreFacade`** [[ADR-0007](docs/adr/0007-corefacade-boundary.md)] — never GRDB, `Store`, `SyncEngine`, or
   the rules engine directly. This boundary is frozen to allow a future Rust core.
-- **Money is `Int64` cents** (`Money` in `Money/Money.swift`). Never `Double`;
+- **Money is `Int64` cents** [[ADR-0010](docs/adr/0010-money-and-time-conventions.md)] (`Money` in `Money/Money.swift`). Never `Double`;
   parse decimal strings via `Decimal` with bankers rounding.
-- **Liabilities are positive magnitudes** inside `NetWorth` math. Stored balances
+- **Liabilities are positive magnitudes** [[ADR-0012](docs/adr/0012-net-worth-rollup-rules.md)] inside `NetWorth` math. Stored balances
   keep the bank's sign (some banks report debt negative); `LocalCore` and the
   series builders take `abs()` of debt-class balances at read time.
 - **Series are step functions** — each account/property holds its last known
   value between snapshots; points are emitted at every change date.
-- **Category model:** two levels, transactions always on leaves; a category with
+- **Category model:** [[ADR-0015](docs/adr/0015-two-level-categories.md)] two levels, transactions always on leaves; a category with
   children is a group header and not assignable. System categories
   (`income`/`transfer`/`interest`/`uncategorized`) are guarded (no delete/regroup).
   Delete/merge must reassign transactions and repoint rules in app-mediated code
   — never rely on the FK cascade.
-- **Colors are deterministic:** `CategoryPalette.nextColor` picks the least-used
+- **Colors are deterministic:** [[ADR-0016](docs/adr/0016-deterministic-category-colors.md)] `CategoryPalette.nextColor` picks the least-used
   hue, ties by palette order; palette order must stay stable. No RNG.
-- **AI suggestions are never auto-applied** — rules first, on-device model only
+- **AI suggestions are never auto-applied** [[ADR-0017](docs/adr/0017-three-tier-categorization.md)] — rules first, on-device model only
   on a rule miss, always surfaced for user confirmation.
-- **Secrets:** the SimpleFIN access URL goes only in `SecretStore` (Keychain),
+- **Secrets:** [[ADR-0013](docs/adr/0013-access-url-keychain-only.md)] the SimpleFIN access URL goes only in `SecretStore` (Keychain),
   never the DB. Nothing is sent to any backend.
 
 ## Build & test

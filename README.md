@@ -120,6 +120,7 @@ are auto-detected.
 All documentation lives in [`docs/`](docs/); feature plans live in
 [`docs/plans/`](docs/plans/).
 
+- [adr/](docs/adr/) — architecture decision records: why the app is shaped this way
 - [PLAN.md](docs/PLAN.md) — product plan
 - [TECH_DESIGN.md](docs/TECH_DESIGN.md) — architecture
 - [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) — running status / resume pointer
