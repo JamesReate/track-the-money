@@ -8,7 +8,8 @@ enum Brand {
     static let surface    = Color(hex: 0xFCFDFB)
     static let ink        = Color(hex: 0x16211C)
     static let evergreen  = Color(hex: 0x1E4D3A)   // assets / positive / brand
-    static let clay       = Color(hex: 0xB0533C)   // debts / interest / negative
+    static let clay       = Color(hex: 0xB0533C)   // debts / interest / negative (unsecured)
+    static let claySoft   = Color(hex: 0xCE8B79)   // lighter clay — secured / mortgage debt
     static let brass      = Color(hex: 0x9A7B3F)   // signature accent (used sparingly)
     static let slate      = Color(hex: 0x6A746E)   // secondary text
     static let hairline   = Color(hex: 0x16211C).opacity(0.10)
@@ -21,6 +22,29 @@ extension Color {
                   green: Double((hex >> 8) & 0xFF) / 255,
                   blue:  Double(hex & 0xFF) / 255,
                   opacity: 1)
+    }
+
+    /// Parse a stored category color ("#RRGGBB"). Falls back to slate so a missing
+    /// or malformed value still renders.
+    init(categoryHex: String?) {
+        guard let raw = categoryHex?.trimmingCharacters(in: CharacterSet(charactersIn: "# ")),
+              raw.count == 6, let value = UInt(raw, radix: 16) else {
+            self = Brand.slate; return
+        }
+        self.init(hex: value)
+    }
+}
+
+/// A small filled dot for a category's color — the recurring visual key for a
+/// category across rows, pickers, and charts.
+struct CategoryDot: View {
+    let hex: String?
+    var size: CGFloat = 10
+    var body: some View {
+        Circle()
+            .fill(Color(categoryHex: hex))
+            .frame(width: size, height: size)
+            .overlay(Circle().stroke(Brand.hairline, lineWidth: 0.5))
     }
 }
 
@@ -60,17 +84,23 @@ struct MoneyText: View {
     }
 }
 
-/// Signature element: one bar splitting assets (evergreen) vs debts (clay).
+/// Signature element: one bar splitting assets (evergreen) vs debts. Debts are
+/// shown in two tones of clay — unsecured darker, secured/mortgage lighter.
 struct BalanceBar: View {
     let assets: Money
-    let liabilities: Money
+    let unsecuredDebt: Money
+    let securedDebt: Money
     var body: some View {
         GeometryReader { geo in
-            let total = max(1.0, Double(assets.cents) + Double(liabilities.cents))
-            let assetW = geo.size.width * (Double(assets.cents) / total)
+            let w = Double(geo.size.width)
+            let total = max(1.0, Double(assets.cents) + Double(unsecuredDebt.cents) + Double(securedDebt.cents))
+            let assetW = CGFloat(w * Double(assets.cents) / total)
+            let unsecW = CGFloat(w * Double(unsecuredDebt.cents) / total)
+            let secW = CGFloat(w * Double(securedDebt.cents) / total)
             HStack(spacing: 3) {
                 Capsule().fill(Brand.evergreen).frame(width: max(0, assetW))
-                Capsule().fill(Brand.clay)
+                if unsecuredDebt.cents > 0 { Capsule().fill(Brand.clay).frame(width: max(0, unsecW)) }
+                if securedDebt.cents > 0 { Capsule().fill(Brand.claySoft).frame(width: max(0, secW)) }
             }
         }
         .frame(height: 12)

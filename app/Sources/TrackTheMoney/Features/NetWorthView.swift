@@ -40,11 +40,14 @@ struct NetWorthView: View {
     // Balance bar + legend.
     private func composition(_ nw: NetWorthSummary) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            BalanceBar(assets: nw.assets, liabilities: nw.liabilities)
+            BalanceBar(assets: nw.assets, unsecuredDebt: nw.unsecuredDebt, securedDebt: nw.securedDebt)
             HStack(alignment: .top) {
                 legend("Assets", nw.assets, Brand.evergreen)
                 Spacer()
-                legend("Debts", nw.liabilities, Brand.clay, trailing: true)
+                VStack(alignment: .trailing, spacing: 10) {
+                    legend("Unsecured", nw.unsecuredDebt, Brand.clay, trailing: true)
+                    legend("Secured", nw.securedDebt, Brand.claySoft, trailing: true)
+                }
             }
         }
         .brandCard()
@@ -65,7 +68,7 @@ struct NetWorthView: View {
             line("Liquid", nw.liquid, Brand.evergreen)
             sep; line("Investments", nw.investments, Brand.evergreen)
             sep; line("Real estate equity", nw.realEstateEquity, Brand.evergreen)
-            sep; line("Secured debt", nw.securedDebt, Brand.clay)
+            sep; line("Secured debt", nw.securedDebt, Brand.claySoft)
             sep; line("Unsecured debt", nw.unsecuredDebt, Brand.clay)
         }
         .brandCard()

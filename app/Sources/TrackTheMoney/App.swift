@@ -32,6 +32,8 @@ struct RootView: View {
                 .tabItem { Label("Transactions", systemImage: "list.bullet") }.tag("transactions")
             SpendingView(model: model)
                 .tabItem { Label("Spending", systemImage: "chart.bar") }.tag("spending")
+            CategoriesView(model: model)
+                .tabItem { Label("Categories", systemImage: "tag") }.tag("categories")
             RulesView(model: model)
                 .tabItem { Label("Rules", systemImage: "slider.horizontal.3") }.tag("rules")
             RealEstateView(model: model)

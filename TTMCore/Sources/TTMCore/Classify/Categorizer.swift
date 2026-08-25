@@ -6,10 +6,12 @@ import Foundation
 public struct Categorizer: Sendable {
     private let store: Store
     private let clock: Clock
+    private let onDevice: OnDeviceCategorizer
 
-    public init(store: Store, clock: Clock) {
+    public init(store: Store, clock: Clock, onDevice: OnDeviceCategorizer = NoOpOnDeviceCategorizer()) {
         self.store = store
         self.clock = clock
+        self.onDevice = onDevice
     }
 
     /// Decode persisted rule rows into domain rules (skips malformed conditions).
@@ -29,6 +31,16 @@ public struct Categorizer: Sendable {
     public func categorize(_ txn: TxnView, rules: [Rule]) -> (categoryId: String, source: String)? {
         guard let rule = RulesEngine.firstMatch(txn, rules: rules) else { return nil }
         return (rule.categoryId, "rule:\(rule.id)")
+    }
+
+    /// Second line of the pipeline (TECH_DESIGN §8): a free, on-device AI suggestion
+    /// for a transaction NO rule matched. Returns nil when no model is available or
+    /// it declines. Never writes a category — the caller surfaces it for confirmation
+    /// (and a confirmation can be promoted to a deterministic rule). The paid Claude
+    /// path, when present, is a separate, smarter fallback after this one.
+    public func suggest(_ txn: TxnView, options: [CategoryOption]) async -> CategorySuggestion? {
+        guard onDevice.isAvailable else { return nil }
+        return await onDevice.suggest(txn, options: options)
     }
 
     /// Re-evaluate stored transactions against the rule set.

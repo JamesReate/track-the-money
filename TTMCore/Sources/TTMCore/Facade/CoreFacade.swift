@@ -39,17 +39,23 @@ public struct SyncOutcome: Equatable, Sendable {
 
 public enum RuleApplyMode: Sendable { case forwardOnly, backfill, rerunAll }
 
+/// Filter transactions by whether they carry a category (CATEGORIZATION_PLAN.md §4).
+public enum CategorizationFilter: Sendable, Equatable, CaseIterable { case all, categorized, uncategorized }
+
 public struct TxnQuery: Sendable {
     public var accountId: String?
     public var categoryId: String?
+    public var categorization: CategorizationFilter
     public var from: UnixTime?
     public var to: UnixTime?
     public var searchText: String?
     public var includePending: Bool
     public var limit: Int
-    public init(accountId: String? = nil, categoryId: String? = nil, from: UnixTime? = nil,
+    public init(accountId: String? = nil, categoryId: String? = nil,
+                categorization: CategorizationFilter = .all, from: UnixTime? = nil,
                 to: UnixTime? = nil, searchText: String? = nil, includePending: Bool = true, limit: Int = 100) {
-        self.accountId = accountId; self.categoryId = categoryId; self.from = from; self.to = to
+        self.accountId = accountId; self.categoryId = categoryId; self.categorization = categorization
+        self.from = from; self.to = to
         self.searchText = searchText; self.includePending = includePending; self.limit = limit
     }
 }
@@ -67,7 +73,17 @@ public struct CategorySummary: Equatable, Sendable, Identifiable {
     public let id: String
     public let name: String
     public let kind: String
-    public init(id: String, name: String, kind: String) { self.id = id; self.name = name; self.kind = kind }
+    public let parentId: String?      // nil = top-level (a group header, or a standalone leaf)
+    public let color: String?         // "#RRGGBB"; nil falls back to a neutral tone in the UI
+    public let sort: Int
+    /// System categories (Income/Transfer/Interest/Uncategorized) can't be
+    /// deleted, regrouped, or used as a group parent.
+    public var isSystem: Bool { DefaultData.systemKinds.contains(kind) }
+    public init(id: String, name: String, kind: String, parentId: String? = nil,
+                color: String? = nil, sort: Int = 0) {
+        self.id = id; self.name = name; self.kind = kind
+        self.parentId = parentId; self.color = color; self.sort = sort
+    }
 }
 
 public struct SpendingLine: Equatable, Sendable, Identifiable {
@@ -130,13 +146,43 @@ public protocol CoreFacade: Sendable {
     // Net worth
     func netWorthSummary() async throws -> NetWorthSummary
     func netWorthSeries(from: UnixTime?, to: UnixTime?) async throws -> [NetWorthPoint]
+    /// Debt magnitude over time, split secured vs unsecured (stacked-area chart).
+    func debtSeries(from: UnixTime?, to: UnixTime?) async throws -> [DebtPoint]
 
     // Categorization
     func categories() async throws -> [CategorySummary]
     func setCategory(transactionId: String, categoryId: String?) async throws
+    /// Free, on-device AI suggestion for one uncategorized transaction (nil if no
+    /// model is available or it declines). Never applied automatically — the UI
+    /// surfaces it for confirmation. Paid Claude remains a separate, smarter path.
+    func suggestCategory(transactionId: String) async throws -> CategorySuggestion?
+    /// Count of posted+pending transactions with no category (drives the review badge).
+    func uncategorizedCount() async throws -> Int
+    /// Transaction count per assigned category id (for the manager + delete prompts).
+    func categoryTransactionCounts() async throws -> [String: Int]
     func rules() async throws -> [Rule]
     func upsertRule(_ rule: Rule, apply: RuleApplyMode) async throws
     func deleteRule(id: String) async throws
+
+    // Category management (CATEGORIZATION_PLAN.md §5). Auto-assigns a color when
+    // `color` is nil; `parentId` nil creates a top-level category. Returns the new row.
+    @discardableResult
+    func createCategory(name: String, parentId: String?, kind: String, color: String?) async throws -> CategorySummary
+    func renameCategory(id: String, name: String) async throws
+    func recolorCategory(id: String, color: String) async throws
+    /// Move under a group (`toParentId`) or to top level (nil). System categories reject.
+    func moveCategory(id: String, toParentId: String?) async throws
+    /// Persist a new display order by assigning `sort` from the given sequence.
+    func reorderCategories(orderedIds: [String]) async throws
+    /// Repoint this category's transactions + rules (+ children, if a group) onto
+    /// `reassignTo`, then delete it. System categories reject.
+    func deleteCategory(id: String, reassignTo: String?) async throws
+    /// Merge `fromId` into `intoId`: repoint transactions + rules, then delete source.
+    func mergeCategory(fromId: String, intoId: String) async throws
+    /// Move a category's transactions + rules onto another, leaving BOTH in place.
+    /// Used for "graceful promotion": when a leaf gains its first child it becomes a
+    /// group header, and its directly-assigned transactions move into a subcategory.
+    func reassignCategoryContents(fromId: String, toId: String) async throws
 
     // Spending
     func spending(from: UnixTime, to: UnixTime) async throws -> [SpendingLine]

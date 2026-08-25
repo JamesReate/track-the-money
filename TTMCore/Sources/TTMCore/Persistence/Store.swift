@@ -111,6 +111,20 @@ public struct Store: Sendable {
         }
     }
 
+    /// One transaction's match fields (joins account currency) — for on-demand
+    /// on-device suggestion of a single uncategorized row.
+    public func matchRow(transactionId: String) throws -> MatchRow? {
+        try queue.read { db in
+            try MatchRow.fetchOne(db, sql: """
+                SELECT t.id, t.description, t.payee, t.memo, t.account_id,
+                       t.amount_cents, a.currency, t.category_source
+                FROM transactions t
+                JOIN accounts a ON a.id = t.account_id
+                WHERE t.id = ?
+                """, arguments: [transactionId])
+        }
+    }
+
     public func transactionsForMatching(onlyUncategorized: Bool) throws -> [MatchRow] {
         let predicate = onlyUncategorized ? "WHERE t.category_id IS NULL" : "WHERE t.category_source IS NOT 'manual'"
         return try queue.read { db in
@@ -138,6 +152,11 @@ public struct Store: Sendable {
         }
         if let accountId = q.accountId { conditions.append("t.account_id = ?"); args.append(accountId) }
         if let categoryId = q.categoryId { conditions.append("t.category_id = ?"); args.append(categoryId) }
+        switch q.categorization {
+        case .all: break
+        case .categorized: conditions.append("t.category_id IS NOT NULL")
+        case .uncategorized: conditions.append("t.category_id IS NULL")   // backed by idx_txn_uncat
+        }
         if let from = q.from { conditions.append("t.posted_at >= ?"); args.append(from) }
         if let to = q.to { conditions.append("t.posted_at <= ?"); args.append(to) }
         if !q.includePending { conditions.append("t.pending = 0") }
@@ -210,6 +229,68 @@ public struct Store: Sendable {
 
     public func allCategories() throws -> [CategoryRecord] {
         try queue.read { try CategoryRecord.order(Column("sort")).fetchAll($0) }
+    }
+
+    public func findCategory(id: String) throws -> CategoryRecord? {
+        try queue.read { try CategoryRecord.fetchOne($0, key: id) }
+    }
+
+    /// Transaction count per assigned category id (uncategorized rows excluded).
+    public func transactionCountsByCategory() throws -> [String: Int] {
+        struct Row: FetchableRecord, Decodable { var id: String; var n: Int }
+        return try queue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT category_id AS id, COUNT(*) AS n FROM transactions
+                WHERE category_id IS NOT NULL GROUP BY category_id
+                """)
+        }.reduce(into: [:]) { $0[$1.id] = $1.n }
+    }
+
+    public func uncategorizedCount() throws -> Int {
+        try queue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM transactions WHERE category_id IS NULL") ?? 0
+        }
+    }
+
+    /// Repoint every transaction on `from` to `to` (used by delete/merge so the
+    /// ON DELETE SET NULL on transactions never strands a categorized row).
+    public func reassignTransactions(from: String, to: String, now: Int64) throws {
+        try queue.write { db in
+            try db.execute(sql: "UPDATE transactions SET category_id = ?, updated_at = ? WHERE category_id = ?",
+                           arguments: [to, now, from])
+        }
+    }
+
+    /// Repoint every rule on `from` to `to` (so a delete/merge doesn't cascade
+    /// rules away via the rules.category_id ON DELETE CASCADE).
+    public func repointRules(from: String, to: String, now: Int64) throws {
+        try queue.write { db in
+            try db.execute(sql: "UPDATE rules SET category_id = ?, updated_at = ? WHERE category_id = ?",
+                           arguments: [to, now, from])
+        }
+    }
+
+    /// Reparent children of `from` to `to` (nil = top level). Used when deleting a group.
+    public func reparentChildren(from: String, to: String?) throws {
+        try queue.write { db in
+            try db.execute(sql: "UPDATE categories SET parent_id = ? WHERE parent_id = ?", arguments: [to, from])
+        }
+    }
+
+    public func setCategoryParent(id: String, parentId: String?) throws {
+        try queue.write { db in
+            try db.execute(sql: "UPDATE categories SET parent_id = ? WHERE id = ?", arguments: [parentId, id])
+        }
+    }
+
+    public func setCategorySort(id: String, sort: Int) throws {
+        try queue.write { db in
+            try db.execute(sql: "UPDATE categories SET sort = ? WHERE id = ?", arguments: [sort, id])
+        }
+    }
+
+    public func deleteCategory(id: String) throws {
+        try queue.write { db in try db.execute(sql: "DELETE FROM categories WHERE id = ?", arguments: [id]) }
     }
 
     public func deleteRule(id: String) throws {
@@ -325,6 +406,22 @@ public struct Store: Sendable {
             case propertyId = "property_id"
             case valueCents = "value_cents"
             case asOf = "as_of"
+        }
+    }
+
+    /// Debt-account snapshots (secured + unsecured only), for the debt-over-time
+    /// series. `class` stores AccountClass raw values (camelCase).
+    public func debtSeriesSnapshots() throws -> [DebtSeriesSnapshot] {
+        try queue.read { db in
+            try SnapRow.fetchAll(db, sql: """
+                SELECT s.account_id, a.class, s.balance_cents, s.balance_date
+                FROM balance_snapshots s
+                JOIN accounts a ON a.id = s.account_id
+                WHERE a.archived = 0 AND a.class IN ('securedDebt', 'unsecuredDebt')
+                """)
+        }.map { row in
+            DebtSeriesSnapshot(accountId: row.accountId, secured: row.accountClass == AccountClass.securedDebt.rawValue,
+                               balanceCents: row.balanceCents, balanceDate: row.balanceDate)
         }
     }
 

@@ -5,8 +5,12 @@ Resume pointer for Track The Money. See [PLAN.md](PLAN.md) (product) and
 Swift 6.3 toolchain.
 
 **Build & test:**
-- Core: `cd TTMCore && swift build && swift test` — **26 tests passing, 0 warnings**.
+- Core: `cd TTMCore && swift build && swift test` — **39 tests passing, 0 warnings**.
 - App: `cd app && swift build` (or `swift run TrackTheMoney` on macOS) — builds clean.
+- UI tests: `xcodebuild test -scheme TrackTheMoney -only-testing:TrackTheMoneyUITests`
+  (XCUITest target `app/UITests`) — drives the categorize/create/review/promotion + AI
+  suggestion flows on the Simulator; **5 passing**. (Launch args: `-resetStore` for a clean
+  DB; `-stubAI` forces the deterministic heuristic categorizer; `-noAI` disables it.)
 - Xcode (multiplatform): `xcodegen generate && open TrackTheMoney.xcodeproj` — see [BUILD.md](BUILD.md).
 
 ## Milestone 1 — Free on-device app
@@ -58,13 +62,25 @@ Swift 6.3 toolchain.
   auto-applies** on category tap (+ optional "Also create a rule" toggle); row
   **reflects new category immediately + glows**; **Spending month filter** (last
   6 months + All time chips, defaults to current month).
+- ✅ **Categorization upgrade** (see [CATEGORIZATION_PLAN.md](CATEGORIZATION_PLAN.md)) —
+  **two-level categories** (groups → leaves; transactions on leaves), seeded grouped
+  tree incl. new **Entertainment** group, reconciled idempotently by
+  `DefaultData.ensureCategories` (adds structure to existing installs, never clobbers
+  user edits); **auto-assigned colors** (`CategoryPalette`, deterministic least-used
+  hue) shown as dots on txn rows + per-category Spending chart; **categorized /
+  uncategorized filter** on Transactions (`TxnQuery.categorization`, backed by new
+  `idx_txn_uncat`, migration **v4**) with count badge; **create-on-the-fly** in a
+  grouped searchable categorize sheet; **Review mode** (guided one-at-a-time pass);
+  **Categories manager** (rename/recolor/reorder/regroup/merge/delete-with-reassign,
+  system-category guards). Facade gained full category CRUD + merge/reassign. +9 tests
+  (`CategoryTests`).
 
 ### Next up (resume here)
 1. ⏭️ Run live on Simulator/device with a real SimpleFIN token (Settings → paste
    setup token). The network path is verified; this is the end-to-end proof.
 2. Scheduled background refresh (`BGAppRefreshTask` iOS / timer macOS) +
    per-connection sync status surfacing (needs_auth/error) in Settings.
-3. Categories CRUD UI; rule priority editing; "apply mode" choice on rule create.
+3. Rule priority editing; "apply mode" choice on rule create. (Categories CRUD UI ✅ done.)
 4. Local CSV/JSON export.
 5. **Milestone 2** — paid cloud (`track-the-money-cloud`): Go relay + AI proxy +
    auth/billing; device-side `Crypto` (HPKE/CryptoKit) + `SyncClient`.

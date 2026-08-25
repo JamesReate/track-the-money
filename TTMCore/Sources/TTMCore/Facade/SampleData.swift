@@ -55,10 +55,11 @@ extension Store {
             ("chk", "t7", "HOME DEPOT #412", -15_800, 9, "home"),
             ("chk", "t8", "THE DOG GROOMER", -7_500, 11, "pets"),
             ("chk", "t9", "PAYROLL — ACME INC", 480_000, 14, "income"),
-            ("chk", "t10", "NETFLIX.COM", -1_599, 15, nil),
+            ("chk", "t10", "NETFLIX.COM", -1_599, 15, "streaming"),
             ("chk", "t11", "AMAZON MKTPL", -4_299, 16, nil),
             ("visa", "t12", "INTEREST CHARGE", -3_812, 5, "interest"),
             ("visa", "t13", "DELTA AIR LINES", -42_180, 8, nil),
+            ("chk", "t14", "STARBUCKS STORE 1234", -640, 1, nil),   // uncategorized → AI suggests Dining
         ]
         for (acct, sfin, payee, cents, daysAgo, cat) in txns {
             guard let aid = localId[acct] else { continue }

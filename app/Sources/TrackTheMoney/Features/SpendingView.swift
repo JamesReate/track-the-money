@@ -57,14 +57,15 @@ struct SpendingView: View {
                     Chart(model.spending.prefix(8)) { line in
                         BarMark(x: .value("Amount", Double(line.amount.cents) / 100),
                                 y: .value("Category", line.categoryName))
-                        .foregroundStyle(Brand.clay)
+                        .foregroundStyle(Color(categoryHex: model.categoryColorHex(line.categoryId)))
                     }
                     .frame(height: 240)
                     .listRowBackground(Brand.surface)
                 }
                 Section {
                     ForEach(model.spending) { line in
-                        HStack {
+                        HStack(spacing: 8) {
+                            CategoryDot(hex: model.categoryColorHex(line.categoryId))
                             Text(line.categoryName)
                             Spacer()
                             MoneyText(line.amount, size: 16, color: Brand.clay)

@@ -188,6 +188,14 @@ public final class Database: @unchecked Sendable {
             try db.execute(sql: "ALTER TABLE accounts ADD COLUMN nickname TEXT")
         }
 
+        migrator.registerMigration("v4_uncat_index") { db in
+            // Partial index over uncategorized rows — the hot path for the
+            // categorized/uncategorized filter and the review queue. The category
+            // tree itself (groups, colors) needs no DDL: parent_id/color already
+            // exist and are reconciled in Swift by DefaultData.ensureCategories.
+            try db.execute(sql: "CREATE INDEX idx_txn_uncat ON transactions(category_id) WHERE category_id IS NULL")
+        }
+
         // ai_suggestions lands in a later migration with the AI (paid) feature.
         return migrator
     }

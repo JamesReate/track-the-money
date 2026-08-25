@@ -39,3 +39,24 @@ targets:
         ENABLE_PREVIEWS: YES
         # Mac: native AppKit-backed SwiftUI (not Catalyst).
         SUPPORTS_MACCATALYST: NO
+  TrackTheMoneyUITests:
+    type: bundle.ui-testing
+    supportedDestinations: [iOS, macOS]   # UI automation on the iOS Simulator + native Mac
+    sources:
+      - path: app/UITests
+    dependencies:
+      - target: TrackTheMoney
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: money.trackthe.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+        TEST_TARGET_NAME: TrackTheMoney
+schemes:
+  TrackTheMoney:
+    build:
+      targets:
+        TrackTheMoney: all
+    test:
+      targets:
+        - TrackTheMoneyUITests

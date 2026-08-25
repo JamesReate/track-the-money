@@ -24,4 +24,20 @@ final class NetWorthSeriesTests: XCTestCase {
         XCTAssertEqual(series.map(\.asOf), [25])
         XCTAssertEqual(series.first?.netWorth.cents, 600)
     }
+
+    func testDebtSeriesSplitsSecuredAndUnsecured() {
+        let snaps = [
+            // mortgage (secured), reported negative: 200 at t=10, paid down to 180 at t=30
+            DebtSeriesSnapshot(accountId: "mtg", secured: true, balanceCents: -200, balanceDate: 10),
+            DebtSeriesSnapshot(accountId: "mtg", secured: true, balanceCents: -180, balanceDate: 30),
+            // card (unsecured): 40 at t=20
+            DebtSeriesSnapshot(accountId: "card", secured: false, balanceCents: 40, balanceDate: 20),
+        ]
+        let series = NetWorth.debtSeries(snapshots: snaps)
+        XCTAssertEqual(series.map(\.asOf), [10, 20, 30])
+        // magnitudes; card carries forward once seen
+        XCTAssertEqual(series.map { $0.secured.cents }, [200, 200, 180])
+        XCTAssertEqual(series.map { $0.unsecured.cents }, [0, 40, 40])
+        XCTAssertEqual(series.last?.total.cents, 220)   // 180 + 40
+    }
 }

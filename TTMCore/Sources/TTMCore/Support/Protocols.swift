@@ -43,4 +43,5 @@ public enum TTMError: Error, Equatable {
     case network(String)
     case notFound
     case crypto(String)
+    case invalidOperation(String)
 }
