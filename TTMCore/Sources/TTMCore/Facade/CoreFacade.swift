@@ -195,6 +195,21 @@ public protocol CoreFacade: Sendable {
     func transactions(_ query: TxnQuery) async throws -> [TransactionRecord]
     @discardableResult func detectTransfers() async throws -> Int
 
+    // Backup & restore (docs/plans/DATA_PORTABILITY_PLAN.md). The file is a
+    // complete SQLite snapshot; restore replaces everything and never merges.
+    // Secrets stay in the Keychain, so a backup carries no SimpleFIN access URL.
+    /// Write a snapshot to a temp file and return its URL for the app's exporter.
+    func exportBackup() async throws -> URL
+    /// Validate + summarize a candidate file without touching the live store.
+    func inspectBackup(at url: URL) async throws -> BackupInfo
+    /// Replace the store with the backup, keeping one generation of undo.
+    @discardableResult
+    func restoreBackup(from url: URL) async throws -> BackupInfo
+    /// Is a pre-restore copy still available to roll back to?
+    func canUndoRestore() async -> Bool
+    /// Put back the store the last restore replaced. Consumes the undo.
+    func undoRestore() async throws
+
     // Real estate
     func addProperty(name: String, kind: String) async throws -> String
     func addPropertyValue(propertyId: String, value: Money, asOf: UnixTime, note: String?) async throws

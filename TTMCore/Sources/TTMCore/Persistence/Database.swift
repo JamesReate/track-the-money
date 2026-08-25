@@ -28,10 +28,33 @@ public final class Database: @unchecked Sendable {
         return db
     }
 
-    static var migrator: DatabaseMigrator {
-        var migrator = DatabaseMigrator()
+    /// Release the SQLite connection. Required before the backing file can be
+    /// swapped underneath us (BackupManager restore/undo) — the caller builds a
+    /// fresh `Database` afterwards rather than reusing this one.
+    public func close() throws {
+        try dbQueue.close()
+    }
 
-        migrator.registerMigration("v1_schema") { db in
+    /// Identifiers of every migration this build knows, in registration order.
+    /// A backup carrying an identifier outside this set was written by a newer
+    /// app and cannot be migrated backwards — see BackupManager.inspect.
+    public static var knownMigrations: [String] { migrator.migrations }
+
+    static var migrator: DatabaseMigrator { migrator(through: nil) }
+
+    /// Migrations up to and including `identifier` — all of them when nil.
+    /// Truncation exists so tests can build an old-schema fixture to restore.
+    static func migrator(through identifier: String?) -> DatabaseMigrator {
+        var migrator = DatabaseMigrator()
+        var reachedCutoff = false
+
+        func register(_ id: String, _ body: @escaping (GRDB.Database) throws -> Void) {
+            guard !reachedCutoff else { return }
+            migrator.registerMigration(id, migrate: body)
+            if id == identifier { reachedCutoff = true }
+        }
+
+        register("v1_schema") { db in
             // Faithful subset of TECH_DESIGN §5. Kept as plain SQL (not a Swift
             // DSL) so it ports verbatim to rusqlite/sqlx in the Rust milestone.
             try db.execute(sql: """
@@ -157,7 +180,7 @@ public final class Database: @unchecked Sendable {
             """)
         }
 
-        migrator.registerMigration("v2_fts") { db in
+        register("v2_fts") { db in
             try db.execute(sql: """
             CREATE VIRTUAL TABLE transactions_fts USING fts5(
               description, payee, memo,
@@ -181,14 +204,14 @@ public final class Database: @unchecked Sendable {
             """)
         }
 
-        migrator.registerMigration("v3_account_nickname") { db in
+        register("v3_account_nickname") { db in
             // User-chosen display name. Never overwritten by sync (which only
             // updates `name` from SimpleFIN). The account's id / sfin_account_id
             // are untouched, so syncing continues unchanged.
             try db.execute(sql: "ALTER TABLE accounts ADD COLUMN nickname TEXT")
         }
 
-        migrator.registerMigration("v4_uncat_index") { db in
+        register("v4_uncat_index") { db in
             // Partial index over uncategorized rows — the hot path for the
             // categorized/uncategorized filter and the review queue. The category
             // tree itself (groups, colors) needs no DDL: parent_id/color already

@@ -2,14 +2,53 @@ import Foundation
 
 /// The free, on-device `CoreFacade` implementation: SQLite + on-device SimpleFIN
 /// sync + deterministic rules. No backend. The SwiftUI app talks only to this.
-public final class LocalCore: CoreFacade {
-    let store: Store
+// `internals` is swapped on restore, so this class is mutable state shared
+// across concurrency domains; the lock below makes that safe and `@unchecked`
+// tells the compiler we've handled it (same pattern as `Database`).
+public final class LocalCore: CoreFacade, @unchecked Sendable {
+    /// Everything bound to the open database file. Restoring a backup swaps that
+    /// file, so these are rebuilt wholesale rather than mutated — the facade
+    /// instance (and every SwiftUI reference to it) survives untouched.
+    /// DATA_PORTABILITY_PLAN §5 D3a.
+    private final class Internals: Sendable {
+        let database: Database
+        let store: Store
+        let sync: SyncEngine
+        let categorizer: Categorizer
+
+        init(dbPath: String, secrets: SecretStore, clock: Clock,
+             client: SimpleFINClient, onDevice: OnDeviceCategorizer) throws {
+            let database = try Database(path: dbPath)
+            let store = Store(database)
+            self.database = database
+            self.store = store
+            self.sync = SyncEngine(store: store, client: client, secrets: secrets, clock: clock)
+            self.categorizer = Categorizer(store: store, clock: clock, onDevice: onDevice)
+            try DefaultData.seedIfEmpty(store, now: clock.now())
+        }
+    }
+
+    private let internalsLock = NSLock()
+    private var _internals: Internals
+    /// Current engine internals. Reads take the lock because a restore can
+    /// replace them from another task mid-flight.
+    private var internals: Internals {
+        internalsLock.lock(); defer { internalsLock.unlock() }
+        return _internals
+    }
+
     let clock: Clock
+    private let dbPath: String
     private let secrets: SecretStore
     private let network: NetworkClient
     private let client: SimpleFINClient
-    private let engine: SyncEngine
-    private let categorizer: Categorizer
+    private let onDeviceCategorizer: OnDeviceCategorizer
+
+    // Read through to the current internals, so the ~70 call sites below (and
+    // tests reaching for `core.store`) are unaffected by a restore swapping them.
+    var store: Store { internals.store }
+    private var engine: SyncEngine { internals.sync }
+    private var categorizer: Categorizer { internals.categorizer }
 
     /// `onDeviceCategorizer` is the injection point for free on-device AI (Apple
     /// Foundation Models / Core ML). Defaults to a no-op so the free app is
@@ -18,15 +57,15 @@ public final class LocalCore: CoreFacade {
     /// app and conforms to `OnDeviceCategorizer`.
     public init(dbPath: String, secrets: SecretStore, network: NetworkClient, clock: Clock = SystemClock(),
                 onDeviceCategorizer: OnDeviceCategorizer = NoOpOnDeviceCategorizer()) throws {
-        let database = try Database(path: dbPath)
-        self.store = Store(database)
+        let client = LiveSimpleFINClient(net: network)
+        self.dbPath = dbPath
         self.secrets = secrets
         self.network = network
         self.clock = clock
-        self.client = LiveSimpleFINClient(net: network)
-        self.engine = SyncEngine(store: store, client: client, secrets: secrets, clock: clock)
-        self.categorizer = Categorizer(store: store, clock: clock, onDevice: onDeviceCategorizer)
-        try DefaultData.seedIfEmpty(store, now: clock.now())
+        self.client = client
+        self.onDeviceCategorizer = onDeviceCategorizer
+        self._internals = try Internals(dbPath: dbPath, secrets: secrets, clock: clock,
+                                        client: client, onDevice: onDeviceCategorizer)
     }
 
     // MARK: Connections / sync
@@ -344,5 +383,45 @@ public final class LocalCore: CoreFacade {
         try store.propertySummaries().map {
             PropertySummary(id: $0.id, name: $0.name, value: Money(cents: $0.valueCents), linkedDebt: Money(cents: $0.debtCents))
         }
+    }
+
+    // MARK: Backup & restore (docs/plans/DATA_PORTABILITY_PLAN.md)
+
+    /// Snapshot the store to a temp file the app layer hands to the exporter.
+    public func exportBackup() async throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(BackupManager.suggestedFilename(now: clock.now()))
+        return try BackupManager.export(from: internals.database, to: url)
+    }
+
+    public func inspectBackup(at url: URL) async throws -> BackupInfo {
+        try BackupManager.inspect(at: url)
+    }
+
+    /// Replace everything with the given backup. Validates before touching the
+    /// store and rolls back to the pre-restore copy on any failure.
+    @discardableResult
+    public func restoreBackup(from url: URL) async throws -> BackupInfo {
+        try BackupManager.restore(from: url, into: dbPath,
+                                  closeLive: { [self] in try internals.database.close() },
+                                  reopen: { [self] in try rebuildInternals() })
+    }
+
+    public func canUndoRestore() async -> Bool {
+        BackupManager.hasUndo(livePath: dbPath)
+    }
+
+    public func undoRestore() async throws {
+        try BackupManager.undo(livePath: dbPath,
+                               closeLive: { [self] in try internals.database.close() },
+                               reopen: { [self] in try rebuildInternals() })
+    }
+
+    /// Rebind Store/SyncEngine/Categorizer onto whatever file now sits at
+    /// `dbPath`. Migrations run here, so an older backup upgrades itself.
+    private func rebuildInternals() throws {
+        let fresh = try Internals(dbPath: dbPath, secrets: secrets, clock: clock,
+                                  client: client, onDevice: onDeviceCategorizer)
+        internalsLock.lock(); _internals = fresh; internalsLock.unlock()
     }
 }
