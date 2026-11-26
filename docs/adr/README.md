@@ -59,6 +59,7 @@ New record: copy [`TEMPLATE.md`](TEMPLATE.md), take the next number, add a row h
 | [0019](0019-restore-replaces-everything.md) | Restore replaces everything, with one undo | Accepted |
 | [0020](0020-backups-exclude-secrets.md) | Backups exclude secrets; CSV and auto-backup deferred | Accepted |
 | [0023](0023-profiles-one-store-per-data-set.md) | Profiles: one store per data set; secrets stay per connection | Accepted |
+| [0024](0024-manual-accounts-and-account-deletion.md) | Manual accounts under a hidden local connection; deleted synced accounts become tombstones; credit-card class; user-entered APR | Accepted |
 
 ## Known open questions
 

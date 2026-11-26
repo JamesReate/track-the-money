@@ -50,8 +50,10 @@ final class RulesTests: XCTestCase {
 
 final class ClassifyTests: XCTestCase {
     func testGuessesDebtAndLiquid() {
-        XCTAssertEqual(AccountClassifier.guess(name: "VISA Signature"), .unsecuredDebt)
+        XCTAssertEqual(AccountClassifier.guess(name: "VISA Signature"), .creditCard)
         XCTAssertEqual(AccountClassifier.guess(name: "Home Mortgage"), .securedDebt)
+        XCTAssertEqual(AccountClassifier.guess(name: "Honda Auto Loan"), .securedDebt)
+        XCTAssertEqual(AccountClassifier.guess(name: "Student Loan"), .unsecuredDebt)
         XCTAssertEqual(AccountClassifier.guess(name: "Everyday Checking"), .liquid)
         XCTAssertEqual(AccountClassifier.guess(name: "Fidelity Roth IRA"), .investment)
         XCTAssertEqual(AccountClassifier.guess(name: "Mystery Account"), .unclassified)
@@ -65,12 +67,14 @@ final class NetWorthTests: XCTestCase {
             AccountBalance(accountClass: .investment, balance: Money(cents: 1_000_000)),
             AccountBalance(accountClass: .securedDebt, balance: Money(cents: 30_000_000)),
             AccountBalance(accountClass: .unsecuredDebt, balance: Money(cents: 250_000)),
+            AccountBalance(accountClass: .creditCard, balance: Money(cents: 50_000)),
         ]
         let summary = NetWorth.summary(accounts: accounts, propertyValues: [Money(cents: 40_000_000)], asOf: 0)
         XCTAssertEqual(summary.liquid.cents, 500_000)
         XCTAssertEqual(summary.securedDebt.cents, 30_000_000)
         XCTAssertEqual(summary.assets.cents, 500_000 + 1_000_000 + 40_000_000)
-        XCTAssertEqual(summary.liabilities.cents, 30_000_000 + 250_000)
+        XCTAssertEqual(summary.unsecuredDebt.cents, 250_000 + 50_000, "credit cards roll up as unsecured")
+        XCTAssertEqual(summary.liabilities.cents, 30_000_000 + 250_000 + 50_000)
         XCTAssertEqual(summary.netWorth.cents, summary.assets.cents - summary.liabilities.cents)
     }
 }

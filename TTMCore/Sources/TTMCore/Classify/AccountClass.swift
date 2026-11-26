@@ -5,7 +5,8 @@ public enum AccountClass: String, Codable, CaseIterable, Sendable {
     case liquid          // + asset: checking, savings, money market
     case investment      // + asset: brokerage, retirement, HSA
     case securedDebt     // - liability: mortgage, auto loan, HELOC
-    case unsecuredDebt   // - liability: credit cards, personal/student loans
+    case creditCard      // - liability: a credit card (rolls up as unsecured debt)
+    case unsecuredDebt   // - liability: personal/student loans, other unsecured
     case realEstate      // + asset (manual value); see Property
     case income          // tracked, not a net-worth balance
     case excluded        // ignored
@@ -16,10 +17,13 @@ public enum AccountClass: String, Codable, CaseIterable, Sendable {
     public var contribution: Contribution {
         switch self {
         case .liquid, .investment, .realEstate: return .asset
-        case .securedDebt, .unsecuredDebt: return .liability
+        case .securedDebt, .creditCard, .unsecuredDebt: return .liability
         case .income, .excluded, .unclassified: return .ignored
         }
     }
+
+    /// Debt classes carry an interest rate (APR) and appear on Debt & Interest.
+    public var isDebt: Bool { contribution == .liability }
 }
 
 public enum AccountClassifier {
@@ -29,10 +33,12 @@ public enum AccountClassifier {
         let n = name.lowercased()
         func has(_ needles: [String]) -> Bool { needles.contains { n.contains($0) } }
 
-        if has(["visa", "mastercard", "amex", "credit card", "card ending", "loan", "student"]) {
-            return .unsecuredDebt
-        }
+        // Secured debt first: "auto loan" must not fall through to unsecured.
         if has(["mortgage", "heloc", "home equity", "auto loan"]) { return .securedDebt }
+        if has(["visa", "mastercard", "amex", "credit card", "card ending"]) {
+            return .creditCard
+        }
+        if has(["loan", "student"]) { return .unsecuredDebt }
         if has(["401k", "ira", "roth", "brokerage", "hsa", "invest", "vanguard", "fidelity"]) {
             return .investment
         }

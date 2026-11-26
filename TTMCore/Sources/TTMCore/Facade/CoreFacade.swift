@@ -96,20 +96,44 @@ public struct SpendingLine: Equatable, Sendable, Identifiable {
     }
 }
 
+/// Where an account's balance comes from (ACCOUNT_MANAGEMENT_PLAN).
+public enum AccountSource: String, Sendable {
+    case synced     // a SimpleFIN connection
+    case manual     // the user types the value in
+    case sample     // built-in demo data
+}
+
 public struct AccountSummary: Equatable, Sendable, Identifiable {
     public let id: String
     public let name: String          // display name (nickname ?? syncedName)
-    public let syncedName: String    // the name SimpleFIN reports
+    public let syncedName: String    // the name SimpleFIN reports (manual: the name itself)
     public let isRenamed: Bool
     public let accountClass: AccountClass
     public let balance: Money
     public let currency: String
+    /// A synced account the user deleted: a hidden tombstone sync skips.
     public let archived: Bool
+    public let source: AccountSource
+    /// When the balance was last reported (synced) or entered (manual).
+    public let balanceDate: UnixTime?
+    /// Annual interest rate in basis points (2299 = 22.99%), user-entered for
+    /// debt accounts; nil when not set.
+    public let aprBps: Int?
     public init(id: String, name: String, syncedName: String, isRenamed: Bool,
-                accountClass: AccountClass, balance: Money, currency: String, archived: Bool) {
+                accountClass: AccountClass, balance: Money, currency: String, archived: Bool,
+                source: AccountSource = .synced, balanceDate: UnixTime? = nil, aprBps: Int? = nil) {
         self.id = id; self.name = name; self.syncedName = syncedName; self.isRenamed = isRenamed
         self.accountClass = accountClass; self.balance = balance; self.currency = currency; self.archived = archived
+        self.source = source; self.balanceDate = balanceDate; self.aprBps = aprBps
     }
+}
+
+/// One recorded value of an account (a balance snapshot).
+public struct BalanceEntry: Equatable, Sendable, Identifiable {
+    public let asOf: UnixTime
+    public let balance: Money
+    public var id: UnixTime { asOf }
+    public init(asOf: UnixTime, balance: Money) { self.asOf = asOf; self.balance = balance }
 }
 
 public struct PropertySummary: Equatable, Sendable, Identifiable {
@@ -181,6 +205,25 @@ public protocol CoreFacade: Sendable {
     /// Set a display nickname (nil/empty reverts to the SimpleFIN name). The
     /// account id is unchanged, so syncing continues unaffected.
     func renameAccount(accountId: String, name: String?) async throws
+    /// Set a debt account's current interest rate in basis points (nil clears).
+    /// Kept by sync, which never reports rates. Refused for non-debt classes.
+    func setAccountAPR(accountId: String, aprBps: Int?) async throws
+    /// A manually tracked account: no connection, the user enters its value.
+    /// Debts take the positive amount owed. `asOf` is the start of the chosen day.
+    func addManualAccount(name: String, accountClass: AccountClass, balance: Money, asOf: UnixTime) async throws -> String
+    /// Record a manual account's value as of a day (replacing that day's entry).
+    /// The current balance is the latest-dated entry, so back-filling is safe.
+    func setManualBalance(accountId: String, balance: Money, asOf: UnixTime) async throws
+    /// Recorded values, newest first.
+    func balanceHistory(accountId: String) async throws -> [BalanceEntry]
+    /// Remove one manual value; the last one can't be removed (delete the account).
+    func deleteBalanceEntry(accountId: String, asOf: UnixTime) async throws
+    /// Manual/sample accounts are removed outright. A synced account loses its
+    /// transactions and history and becomes a hidden tombstone sync skips, so
+    /// the bridge can't re-import it.
+    func deleteAccount(accountId: String) async throws
+    /// Un-delete a synced account: it syncs again from the next sync's window.
+    func restoreAccount(accountId: String) async throws
 
     // Net worth
     func netWorthSummary() async throws -> NetWorthSummary

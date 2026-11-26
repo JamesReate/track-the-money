@@ -15,6 +15,15 @@ extension Store {
     /// sync skips it and `connections()` reports it as `.sample`.
     public static let sampleKeychainRef = "demo"
 
+    /// The hidden connection that manually tracked accounts hang off
+    /// (ACCOUNT_MANAGEMENT_PLAN D1). Its `keychain_ref` is a sentinel too.
+    public static let manualConnectionId = "manual"
+    public static let manualKeychainRef = "manual"
+
+    /// `keychain_ref`s that never name a Keychain item: sync, import re-keying
+    /// and secret cleanup all skip them.
+    public static let localKeychainRefs: Set<String> = [sampleKeychainRef, manualKeychainRef]
+
     func loadSample(now: Int64) throws {
         let day: Int64 = 86_400
         let conn = "demo-conn"
@@ -27,7 +36,7 @@ extension Store {
             ("chk", "Everyday Checking", .liquid, 842_055),
             ("sav", "High-Yield Savings", .liquid, 2_418_000),
             ("brk", "Brokerage", .investment, 14_230_018),
-            ("visa", "Sapphire Visa", .unsecuredDebt, -342_077),
+            ("visa", "Sapphire Visa", .creditCard, -342_077),
             ("mtg", "Home Mortgage", .securedDebt, -38_200_000),
         ]
         var localId: [String: String] = [:]
@@ -47,6 +56,10 @@ extension Store {
                     availableCents: nil, balanceDate: date, recordedAt: now))
             }
         }
+
+        // Rates are user-entered (sync never reports them); demo ones for Debt & Interest.
+        try setAccountAPR(id: "acct-visa", aprBps: 2_299)
+        try setAccountAPR(id: "acct-mtg", aprBps: 650)
 
         // (account, sfinTxnId, payee, cents, daysAgo, categoryId?)
         let txns: [(String, String, String, Int64, Int64, String?)] = [

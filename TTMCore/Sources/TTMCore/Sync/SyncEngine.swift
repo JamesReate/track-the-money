@@ -30,10 +30,10 @@ public struct SyncEngine: Sendable {
         var succeeded = 0, failed = 0, newTxns = 0
         let now = clock.now()
         let rules = (try? categorizer.loadRules()) ?? []
-        // Sample-data rows have no credential by design; syncing them would only
-        // report a failure and flip them to "error".
+        // Sample-data and manual-account rows have no credential by design;
+        // syncing them would only report a failure and flip them to "error".
         let connections = ((try? store.allConnections()) ?? [])
-            .filter { $0.keychainRef != Store.sampleKeychainRef }
+            .filter { !Store.localKeychainRefs.contains($0.keychainRef) }
 
         for conn in connections {
             do {
@@ -63,6 +63,9 @@ public struct SyncEngine: Sendable {
 
         var newCount = 0
         for sf in set.accounts {
+            // A deleted account stays as an archived tombstone so it isn't
+            // re-imported while the bridge still shares it (ACCOUNT_MANAGEMENT_PLAN D3).
+            if try store.findAccount(connectionId: conn.id, sfinAccountId: sf.id)?.archived == true { continue }
             let account = try upsertAccount(conn: conn, sf: sf, now: now)
             try snapshot(account: account, sf: sf, now: now)
             for tx in sf.transactions ?? [] {

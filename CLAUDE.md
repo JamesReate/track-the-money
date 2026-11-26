@@ -31,7 +31,8 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
   design system), `Features/` (one view per screen), `Platform/`
   (`KeychainSecretStore`, `URLSessionNetworkClient`,
   `FoundationModelsCategorizer`, `HeuristicOnDeviceCategorizer`).
-- `app/UITests/` — XCUITest target (`CategorizeUITests`, `BackupUITests`).
+- `app/UITests/` — XCUITest target (`CategorizeUITests`, `BackupUITests`,
+  `ProfilesUITests`, `AccountsUITests`).
 - `project.yml` — XcodeGen spec (source of truth for the Xcode project).
 - `docs/` — **all documentation lives here**; only `README.md` and `CLAUDE.md`
   stay at the repo root. `docs/IMPLEMENTATION_STATUS.md` (running status doc —
@@ -53,6 +54,8 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
     records what implementation turned up that the plan didn't foresee.
   - `PROFILES_PLAN.md` — profiles (switchable data sets), shipped; §8 has
     implementation notes.
+  - `ACCOUNT_MANAGEMENT_PLAN.md` — delete accounts, manual accounts,
+    credit-card class, APR on debts; shipped.
 
 ## Architecture rules (do not break)
 
@@ -90,7 +93,7 @@ anything; if it *is* wrong, write a superseding ADR rather than quietly breaking
 ## Build & test
 
 ```bash
-cd TTMCore && swift test                 # engine tests (65 + 2 opt-in live, XCTest)
+cd TTMCore && swift test                 # engine tests (79 + 2 opt-in live, XCTest)
 cd app && swift build                    # SwiftUI compiles headlessly (macOS host)
 cd app && swift run TrackTheMoney        # run the Mac app from CLI
 xcodegen generate                        # project.yml → TrackTheMoney.xcodeproj
@@ -204,6 +207,27 @@ stores on one device, one active:
   The access URL still never goes into a file.
 - Kind is `real | test` (display only → banner on every tab). The sample
   connection's `keychain_ref` is `Store.sampleKeychainRef`; sync skips it.
+
+## Account management (shipped)
+
+Per `docs/plans/ACCOUNT_MANAGEMENT_PLAN.md`, decided in ADR-0024:
+
+- Manual accounts are normal `accounts` rows under a hidden connection
+  (`Store.manualConnectionId` / `manualKeychainRef`, both `"manual"`).
+  `Store.localKeychainRefs` (`demo`, `manual`) is the one list that sync, import
+  re-keying and Keychain cleanup skip — add any new sentinel there.
+  `connections()` hides the manual holder.
+- A manual value is a balance snapshot at the chosen local day's start
+  (`AppModel.asOfDay`); the balance is the latest-dated snapshot.
+- `deleteAccount`: manual/sample → row delete; synced → tombstone
+  (`archived = 1`, data removed). Sync skips archived accounts, so `archived`
+  now means "deleted by the user", not just "hidden".
+- `creditCard` rolls up as unsecured debt (NetWorth.summary, debt-series SQL).
+  APR is `accounts.apr_bps` (basis points), debt classes only, set by the user;
+  sync never writes it.
+- In a `List`, a `.buttonStyle(.plain)` row only takes taps on its content —
+  add `.contentShape(Rectangle())`. Don't round-trip fractional `Decimal`s
+  through `NSDecimalNumber.intValue` (returns garbage); round first or use Int64.
 
 ## Gotchas
 

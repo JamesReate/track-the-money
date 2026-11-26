@@ -5,6 +5,30 @@ import TTMCore
 struct DebtInterestView: View {
     @Bindable var model: AppModel
     @State private var range: DebtRange = .all
+    @State private var settingRate: AccountSummary?
+
+    /// Debt accounts, highest rate first (unset rates last): the order to pay
+    /// them down in if you're minimizing interest.
+    private var debts: [AccountSummary] {
+        model.accounts.filter { $0.accountClass.isDebt }.sorted {
+            switch ($0.aprBps, $1.aprBps) {
+            case let (a?, b?): return a != b ? a > b : $0.name < $1.name
+            case (_?, nil): return true
+            case (nil, _?): return false
+            case (nil, nil): return $0.name < $1.name
+            }
+        }
+    }
+
+    /// Balance-weighted average APR across debts that have one.
+    private var weightedAPR: Int? {
+        // Integer math: cents × bps stays far inside Int64 for any real balance.
+        let rated = debts.compactMap { d in d.aprBps.map { (abs(d.balance.cents), Int64($0)) } }
+        let total = rated.reduce(Int64(0)) { $0 + $1.0 }
+        guard total > 0 else { return nil }
+        let weighted = rated.reduce(Int64(0)) { $0 + $1.0 * $1.1 }
+        return Int((weighted + total / 2) / total)
+    }
 
     /// Trailing window for the debt chart.
     private enum DebtRange: String, CaseIterable, Identifiable {
@@ -35,6 +59,7 @@ struct DebtInterestView: View {
                         row("Total", nw.securedDebt + nw.unsecuredDebt, emphasize: true)
                     } header: { Eyebrow("Debt today") }
                 }
+                if !debts.isEmpty { interestRates }
                 if let interest = model.interest, !interest.byAccount.isEmpty {
                     Section {
                         ForEach(interest.byAccount, id: \.accountId) { line in
@@ -51,7 +76,43 @@ struct DebtInterestView: View {
             }
             .statementBackground()
             .inlineNavTitle("Debt & Interest")
+            .sheet(item: $settingRate) { account in InterestRateSheet(model: model, account: account) }
         }
+    }
+
+    private var interestRates: some View {
+        Section {
+            ForEach(debts) { debt in
+                Button { settingRate = debt } label: {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(debt.name).foregroundStyle(Brand.ink).lineLimit(1)
+                            MoneyText(Money(cents: abs(debt.balance.cents)), size: 13, color: Brand.slate,
+                                      currency: debt.currency)
+                        }
+                        Spacer()
+                        if let apr = debt.aprBps {
+                            Text(APR.format(apr)).font(.system(size: 16, weight: .semibold)).foregroundStyle(Brand.clay)
+                        } else {
+                            Text("Set rate").font(.callout).foregroundStyle(Brand.brass)
+                        }
+                    }
+                    .contentShape(Rectangle())   // plain buttons only hit their content otherwise
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(Brand.surface)
+                .accessibilityIdentifier("rate-\(debt.name)")
+            }
+            if let avg = weightedAPR {
+                HStack {
+                    Text("Weighted average").fontWeight(.semibold)
+                    Spacer()
+                    Text(APR.format(avg)).fontWeight(.semibold).foregroundStyle(Brand.clay)
+                }
+                .listRowBackground(Brand.surface)
+            }
+        } header: { Eyebrow("Interest rates") }
+        footer: { Text("Highest rate first. Tap a debt to set or change its APR.") }
     }
 
     // Stacked-area debt trend: secured (lighter clay) under unsecured (darker clay),

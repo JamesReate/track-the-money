@@ -59,6 +59,117 @@ public struct Store: Sendable {
         }
     }
 
+    public func findAccount(id: String) throws -> AccountRecord? {
+        try queue.read { try AccountRecord.fetchOne($0, key: id) }
+    }
+
+    public func setAccountName(id: String, name: String) throws {
+        try queue.write { db in
+            try db.execute(sql: "UPDATE accounts SET name = ?, nickname = NULL WHERE id = ?", arguments: [name, id])
+        }
+    }
+
+    public func setAccountAPR(id: String, aprBps: Int?) throws {
+        try queue.write { db in
+            try db.execute(sql: "UPDATE accounts SET apr_bps = ? WHERE id = ?", arguments: [aprBps, id])
+        }
+    }
+
+    public func setAccountArchived(id: String, archived: Bool) throws {
+        try queue.write { db in
+            try db.execute(sql: "UPDATE accounts SET archived = ? WHERE id = ?", arguments: [archived, id])
+        }
+    }
+
+    /// Delete an account row; transactions, snapshots, splits and property-debt
+    /// links cascade. Surviving transfer legs are un-paired first.
+    public func deleteAccount(id: String) throws {
+        try queue.write { db in
+            try Self.unpairTransfers(db, accountId: id)
+            try db.execute(sql: "DELETE FROM accounts WHERE id = ?", arguments: [id])
+        }
+    }
+
+    /// Strip a synced account to a hidden tombstone: its data goes, the row
+    /// stays (archived) so sync recognizes and skips it rather than re-importing.
+    public func tombstoneAccount(id: String) throws {
+        try queue.write { db in
+            try Self.unpairTransfers(db, accountId: id)
+            try db.execute(sql: "DELETE FROM transactions WHERE account_id = ?", arguments: [id])
+            try db.execute(sql: "DELETE FROM balance_snapshots WHERE account_id = ?", arguments: [id])
+            try db.execute(sql: "DELETE FROM property_debts WHERE account_id = ?", arguments: [id])
+            try db.execute(sql: """
+                UPDATE accounts SET archived = 1, balance_cents = 0, available_cents = NULL, balance_date = NULL
+                WHERE id = ?
+                """, arguments: [id])
+        }
+    }
+
+    /// The other leg of any transfer pair touching `accountId` loses its pair:
+    /// clear the flag and group, and the Transfer category if pairing set it.
+    private static func unpairTransfers(_ db: GRDB.Database, accountId: String) throws {
+        try db.execute(sql: """
+            UPDATE transactions SET is_transfer = 0, transfer_group_id = NULL,
+              category_id = CASE WHEN category_source = 'transfer' THEN NULL ELSE category_id END,
+              category_source = CASE WHEN category_source = 'transfer' THEN NULL ELSE category_source END
+            WHERE account_id <> ? AND transfer_group_id IN (
+              SELECT transfer_group_id FROM transactions
+              WHERE account_id = ? AND transfer_group_id IS NOT NULL)
+            """, arguments: [accountId, accountId])
+    }
+
+    public func deleteConnection(id: String) throws {
+        try queue.write { db in
+            try db.execute(sql: "DELETE FROM connections WHERE id = ?", arguments: [id])
+        }
+    }
+
+    public func snapshots(accountId: String) throws -> [BalanceSnapshotRecord] {
+        try queue.read { db in
+            try BalanceSnapshotRecord
+                .filter(Column("account_id") == accountId)
+                .order(Column("balance_date").desc)
+                .fetchAll(db)
+        }
+    }
+
+    /// Insert or replace the snapshot for (account, day), then set the account's
+    /// current balance from its latest snapshot.
+    public func upsertSnapshot(accountId: String, balanceCents: Int64, balanceDate: Int64, now: Int64) throws {
+        try queue.write { db in
+            try db.execute(sql: """
+                INSERT INTO balance_snapshots (account_id, balance_cents, available_cents, balance_date, recorded_at)
+                VALUES (?, ?, NULL, ?, ?)
+                ON CONFLICT (account_id, balance_date)
+                DO UPDATE SET balance_cents = excluded.balance_cents, recorded_at = excluded.recorded_at
+                """, arguments: [accountId, balanceCents, balanceDate, now])
+            try Self.balanceFromLatestSnapshot(db, accountId: accountId)
+        }
+    }
+
+    /// Returns false (and deletes nothing) when it is the account's only snapshot.
+    public func deleteSnapshot(accountId: String, balanceDate: Int64) throws -> Bool {
+        try queue.write { db in
+            let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM balance_snapshots WHERE account_id = ?",
+                                         arguments: [accountId]) ?? 0
+            guard count > 1 else { return false }
+            try db.execute(sql: "DELETE FROM balance_snapshots WHERE account_id = ? AND balance_date = ?",
+                           arguments: [accountId, balanceDate])
+            try Self.balanceFromLatestSnapshot(db, accountId: accountId)
+            return true
+        }
+    }
+
+    private static func balanceFromLatestSnapshot(_ db: GRDB.Database, accountId: String) throws {
+        try db.execute(sql: """
+            UPDATE accounts SET
+              balance_cents = COALESCE((SELECT balance_cents FROM balance_snapshots
+                                        WHERE account_id = ?1 ORDER BY balance_date DESC LIMIT 1), 0),
+              balance_date = (SELECT MAX(balance_date) FROM balance_snapshots WHERE account_id = ?1)
+            WHERE id = ?1
+            """, arguments: [accountId])
+    }
+
     /// Insert a balance snapshot, ignoring the (account_id, balance_date) dupe.
     public func insertSnapshotIfAbsent(_ s: BalanceSnapshotRecord) throws {
         try queue.write { db in
@@ -417,7 +528,7 @@ public struct Store: Sendable {
                 SELECT s.account_id, a.class, s.balance_cents, s.balance_date
                 FROM balance_snapshots s
                 JOIN accounts a ON a.id = s.account_id
-                WHERE a.archived = 0 AND a.class IN ('securedDebt', 'unsecuredDebt')
+                WHERE a.archived = 0 AND a.class IN ('securedDebt', 'creditCard', 'unsecuredDebt')
                 """)
         }.map { row in
             DebtSeriesSnapshot(accountId: row.accountId, secured: row.accountClass == AccountClass.securedDebt.rawValue,

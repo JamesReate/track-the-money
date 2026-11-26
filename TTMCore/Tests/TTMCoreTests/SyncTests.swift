@@ -72,7 +72,7 @@ final class SyncTests: XCTestCase {
         let accounts = try store.allAccounts()
         XCTAssertEqual(accounts.count, 2)
         let visa = accounts.first { $0.sfinAccountId == "visa-1" }
-        XCTAssertEqual(visa?.accountClass, AccountClass.unsecuredDebt.rawValue)   // smart default
+        XCTAssertEqual(visa?.accountClass, AccountClass.creditCard.rawValue)   // smart default
         XCTAssertEqual(visa?.balanceCents, -43018)
     }
 

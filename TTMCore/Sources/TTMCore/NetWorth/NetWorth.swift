@@ -76,7 +76,7 @@ public enum NetWorth {
         let liquid = sum(.liquid)
         let investments = sum(.investment)
         let secured = sum(.securedDebt)
-        let unsecured = sum(.unsecuredDebt)
+        let unsecured = sum(.unsecuredDebt) + sum(.creditCard)
         let realEstateValue = propertyValues.reduce(Money.zero, +)
 
         let assets = liquid + investments + realEstateValue

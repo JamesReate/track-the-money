@@ -5,11 +5,11 @@ Resume pointer for Track The Money. See [PLAN.md](PLAN.md) (product) and
 Swift 6.3 toolchain.
 
 **Build & test:**
-- Core: `cd TTMCore && swift build && swift test` — **65 passing + 2 live tests skipped by default**.
+- Core: `cd TTMCore && swift build && swift test` — **79 passing + 2 live tests skipped by default**.
 - App: `cd app && swift build` (or `swift run TrackTheMoney` on macOS) — builds clean.
 - UI tests: `xcodebuild test -scheme TrackTheMoney -only-testing:TrackTheMoneyUITests`
   (XCUITest target `app/UITests`) — drives the categorize/create/review/promotion + AI
-  suggestion flows, backup surface and profiles on the Simulator; **10 passing** (live test excluded). (Launch args: `-resetStore` for a clean
+  suggestion flows, backup surface, profiles and account management on the Simulator; **13 passing** (live test excluded). (Launch args: `-resetStore` for a clean
   DB; `-stubAI` forces the deterministic heuristic categorizer; `-noAI` disables it.)
 - Xcode (multiplatform): `xcodegen generate && open TrackTheMoney.xcodeproj` — see [BUILD.md](BUILD.md).
 
@@ -105,6 +105,20 @@ Swift 6.3 toolchain.
 - ✅ **Full-screen on iOS 26+** — the Info.plist lacked `UILaunchScreen`, so the
   app ran letterboxed at 320×480; fixed in `project.yml`. This was the cause of the
   "flaky" `testSearchFiltersCategoryList` — all categorize UI tests now pass.
+
+- ✅ **Account management** (see [ACCOUNT_MANAGEMENT_PLAN.md](plans/ACCOUNT_MANAGEMENT_PLAN.md),
+  ADR-0024) — **manually tracked accounts** (Accounts → **+**: name, type, value,
+  as-of date; tap to record a new value, with history you can prune), held under a
+  hidden per-store "manual" connection that sync skips; values are balance
+  snapshots so they feed the net-worth and debt charts. **Delete** for every
+  account: manual/sample go outright; a synced one becomes a hidden tombstone
+  (data removed, sync skips it) listed under "Deleted bank accounts" with *Sync
+  again*. **Credit card** class (rolls up as unsecured debt; the guesser uses it
+  for card names). **Interest rate (APR)** on debt accounts — shown on Accounts,
+  editable from Accounts or Debt & Interest, whose new *Interest rates* section
+  lists debts highest-rate first with a balance-weighted average. No migration
+  (`apr_bps` and `archived` were already in v1). **14 new engine tests**
+  (`AccountManagementTests`) + 2 UI tests (`AccountsUITests`).
 
 ### Next up (resume here)
 1. 🟡 **Live SimpleFIN verification — engine done, app run remaining.**

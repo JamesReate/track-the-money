@@ -117,7 +117,7 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
 
     public func connections() async throws -> [ConnectionSummary] {
         let accountCounts = Dictionary(grouping: try store.allAccounts(), by: \.connectionId).mapValues(\.count)
-        return try store.allConnections().map { conn in
+        return try store.allConnections().filter { $0.id != Store.manualConnectionId }.map { conn in
             ConnectionSummary(id: conn.id, name: conn.name, org: conn.sfinOrg,
                               state: try state(of: conn), lastError: conn.lastError,
                               lastSyncedAt: conn.lastSyncedAt, accountCount: accountCounts[conn.id] ?? 0)
@@ -203,14 +203,114 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
     // MARK: Accounts
 
     public func accounts() async throws -> [AccountSummary] {
-        try store.allAccounts().map { rec in
+        let refs = Dictionary(uniqueKeysWithValues: try store.allConnections().map { ($0.id, $0.keychainRef) })
+        return try store.allAccounts().map { rec in
             let nick = rec.nickname?.trimmingCharacters(in: .whitespacesAndNewlines)
             let renamed = !(nick?.isEmpty ?? true)
             return AccountSummary(
                 id: rec.id, name: renamed ? nick! : rec.name, syncedName: rec.name, isRenamed: renamed,
                 accountClass: AccountClass(rawValue: rec.accountClass) ?? .unclassified,
-                balance: Money(cents: rec.balanceCents), currency: rec.currency, archived: rec.archived)
+                balance: Money(cents: rec.balanceCents), currency: rec.currency, archived: rec.archived,
+                source: Self.source(keychainRef: refs[rec.connectionId]), balanceDate: rec.balanceDate,
+                aprBps: rec.aprBps)
         }
+    }
+
+    private static func source(keychainRef: String?) -> AccountSource {
+        switch keychainRef {
+        case Store.manualKeychainRef: return .manual
+        case Store.sampleKeychainRef: return .sample
+        default:                      return .synced
+        }
+    }
+
+    private func source(of account: AccountRecord) throws -> AccountSource {
+        Self.source(keychainRef: try store.allConnections().first { $0.id == account.connectionId }?.keychainRef)
+    }
+
+    private func requireAccount(_ id: String) throws -> AccountRecord {
+        guard let rec = try store.findAccount(id: id) else { throw TTMError.notFound }
+        return rec
+    }
+
+    private func requireManual(_ id: String) throws -> AccountRecord {
+        let rec = try requireAccount(id)
+        guard try source(of: rec) == .manual else {
+            throw TTMError.invalidOperation("Only manually tracked accounts take a typed-in value.")
+        }
+        return rec
+    }
+
+    /// Upper bound on a typed APR: 100%. Anything above is a typo, not a rate.
+    static let maxAPRBps = 10_000
+
+    public func setAccountAPR(accountId: String, aprBps: Int?) async throws {
+        let rec = try requireAccount(accountId)
+        if let aprBps {
+            guard AccountClass(rawValue: rec.accountClass)?.isDebt == true else {
+                throw TTMError.invalidOperation("Only debt accounts have an interest rate. Classify it as a debt first.")
+            }
+            guard (0...Self.maxAPRBps).contains(aprBps) else {
+                throw TTMError.invalidOperation("Enter a rate between 0% and 100%.")
+            }
+        }
+        try store.setAccountAPR(id: accountId, aprBps: aprBps)
+    }
+
+    public func addManualAccount(name: String, accountClass: AccountClass, balance: Money,
+                                 asOf: UnixTime) async throws -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw TTMError.invalidOperation("Give the account a name.") }
+        let now = clock.now()
+        if !(try store.allConnections().contains { $0.id == Store.manualConnectionId }) {
+            try store.saveConnection(ConnectionRecord(
+                id: Store.manualConnectionId, name: "Manually tracked", keychainRef: Store.manualKeychainRef,
+                sfinOrg: nil, status: "ok", lastError: nil, lastSyncedAt: nil, createdAt: now))
+        }
+        let id = UUID().uuidString
+        try store.saveAccount(AccountRecord(
+            id: id, connectionId: Store.manualConnectionId, sfinAccountId: "manual-\(id)", name: trimmed,
+            currency: "USD", accountClass: accountClass.rawValue, subclass: nil, aprBps: nil,
+            balanceCents: balance.cents, availableCents: nil, balanceDate: asOf, archived: false, createdAt: now))
+        try store.upsertSnapshot(accountId: id, balanceCents: balance.cents, balanceDate: asOf, now: now)
+        return id
+    }
+
+    public func setManualBalance(accountId: String, balance: Money, asOf: UnixTime) async throws {
+        _ = try requireManual(accountId)
+        try store.upsertSnapshot(accountId: accountId, balanceCents: balance.cents, balanceDate: asOf, now: clock.now())
+    }
+
+    public func balanceHistory(accountId: String) async throws -> [BalanceEntry] {
+        try store.snapshots(accountId: accountId).map { BalanceEntry(asOf: $0.balanceDate, balance: Money(cents: $0.balanceCents)) }
+    }
+
+    public func deleteBalanceEntry(accountId: String, asOf: UnixTime) async throws {
+        _ = try requireManual(accountId)
+        guard try store.deleteSnapshot(accountId: accountId, balanceDate: asOf) else {
+            throw TTMError.invalidOperation("An account needs at least one value. Delete the account instead.")
+        }
+    }
+
+    public func deleteAccount(accountId: String) async throws {
+        let rec = try requireAccount(accountId)
+        switch try source(of: rec) {
+        case .synced:
+            try store.tombstoneAccount(id: accountId)
+        case .manual:
+            try store.deleteAccount(id: accountId)
+        case .sample:
+            try store.deleteAccount(id: accountId)
+            // Don't leave "Sample data · 0 accounts" behind in Settings.
+            if !(try store.allAccounts().contains { $0.connectionId == rec.connectionId }) {
+                try store.deleteConnection(id: rec.connectionId)
+            }
+        }
+    }
+
+    public func restoreAccount(accountId: String) async throws {
+        _ = try requireAccount(accountId)
+        try store.setAccountArchived(id: accountId, archived: false)
     }
 
     public func setAccountClass(accountId: String, accountClass: AccountClass) async throws {
@@ -219,6 +319,12 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
 
     public func renameAccount(accountId: String, name: String?) async throws {
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A manual account has no bank name to fall back to: the name is the name.
+        if let rec = try store.findAccount(id: accountId), try source(of: rec) == .manual {
+            guard let trimmed, !trimmed.isEmpty else { return }
+            try store.setAccountName(id: accountId, name: trimmed)
+            return
+        }
         try store.setAccountNickname(id: accountId, nickname: (trimmed?.isEmpty ?? true) ? nil : trimmed)
     }
 
@@ -609,7 +715,7 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
         let database = try Database(path: path)           // migrates an older file forward
         defer { try? database.close() }
         let store = Store(database)
-        for var conn in try store.allConnections() where conn.keychainRef != Store.sampleKeychainRef {
+        for var conn in try store.allConnections() where !Store.localKeychainRefs.contains(conn.keychainRef) {
             let newRef = Self.newKeychainRef()
             if let secret = try secrets.read(ref: conn.keychainRef) {
                 try secrets.write(secret, ref: newRef)
@@ -633,7 +739,7 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
     /// Stores restored from the same backup can share refs, so ownership is
     /// checked, not assumed. Pass the manager from inside `withProfiles`.
     private func deleteSecretsIfUnreferenced(_ refs: [String], manager: ProfileManager?) throws {
-        let candidates = Set(refs).subtracting([Store.sampleKeychainRef])
+        let candidates = Set(refs).subtracting(Store.localKeychainRefs)
         guard !candidates.isEmpty else { return }
         var inUse = Set(try store.allConnections().map(\.keychainRef))
         var paths = [dbPath + BackupManager.preRestoreSuffix]

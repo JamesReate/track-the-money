@@ -31,6 +31,8 @@ public final class AppModel {
     public var series: [NetWorthPoint] = []
     public var debtSeries: [DebtPoint] = []
     public var accounts: [AccountSummary] = []
+    /// Synced accounts the user deleted (hidden tombstones sync skips).
+    public var deletedAccounts: [AccountSummary] = []
     public var recentTransactions: [TransactionRecord] = []
     public var properties: [PropertySummary] = []
     public var interest: InterestRollup?
@@ -134,7 +136,9 @@ public final class AppModel {
             netWorth = try await core.netWorthSummary()
             series = try await core.netWorthSeries(from: nil, to: nil)
             debtSeries = try await core.debtSeries(from: nil, to: nil)
-            accounts = try await core.accounts().filter { !$0.archived }
+            let allAccounts = try await core.accounts()
+            accounts = allAccounts.filter { !$0.archived }
+            deletedAccounts = allAccounts.filter { $0.archived && $0.source == .synced }
             categories = try await core.categories()
             categoryCounts = try await core.categoryTransactionCounts()
             try await reloadTransactions()
@@ -539,6 +543,69 @@ public final class AppModel {
     /// Rename an account for display only (nil/empty reverts to the bank name).
     public func rename(accountId: String, to name: String?) async {
         try? await core.renameAccount(accountId: accountId, name: name)
+        await refresh()
+    }
+
+    // MARK: Manual accounts & delete (docs/plans/ACCOUNT_MANAGEMENT_PLAN.md)
+    // These return a user-facing error (nil on success) so sheets can show it
+    // in place instead of closing on a failure.
+
+    /// The start of `date`'s local day: manual values are per calendar day, and
+    /// TTMCore stays time-zone free.
+    public static func asOfDay(_ date: Date) -> UnixTime {
+        Time.unix(Calendar.current.startOfDay(for: date))
+    }
+
+    public func addManualAccount(name: String, accountClass: AccountClass, balance: Money, asOf: Date,
+                                 aprBps: Int? = nil) async -> String? {
+        do {
+            let id = try await core.addManualAccount(name: name, accountClass: accountClass,
+                                                     balance: balance, asOf: Self.asOfDay(asOf))
+            if let aprBps { try await core.setAccountAPR(accountId: id, aprBps: aprBps) }
+        } catch { await refresh(); return Self.message(error) }
+        await refresh()
+        return nil
+    }
+
+    public func setManualBalance(accountId: String, balance: Money, asOf: Date) async -> String? {
+        do { try await core.setManualBalance(accountId: accountId, balance: balance, asOf: Self.asOfDay(asOf)) }
+        catch { return Self.message(error) }
+        await refresh()
+        return nil
+    }
+
+    public func balanceHistory(accountId: String) async -> [BalanceEntry] {
+        (try? await core.balanceHistory(accountId: accountId)) ?? []
+    }
+
+    public func deleteBalanceEntry(accountId: String, asOf: UnixTime) async -> String? {
+        do { try await core.deleteBalanceEntry(accountId: accountId, asOf: asOf) }
+        catch { return Self.message(error) }
+        await refresh()
+        return nil
+    }
+
+    /// Set (or, with nil, clear) a debt account's APR in basis points.
+    public func setAPR(accountId: String, aprBps: Int?) async -> String? {
+        do { try await core.setAccountAPR(accountId: accountId, aprBps: aprBps) }
+        catch { return Self.message(error) }
+        await refresh()
+        return nil
+    }
+
+    public func deleteAccount(_ account: AccountSummary) async {
+        do {
+            try await core.deleteAccount(accountId: account.id)
+            statusMessage = "Deleted “\(account.name)”."
+        } catch { statusMessage = "Couldn’t delete: \(Self.message(error))" }
+        await refresh()
+    }
+
+    public func restoreAccount(_ account: AccountSummary) async {
+        do {
+            try await core.restoreAccount(accountId: account.id)
+            statusMessage = "“\(account.name)” will sync again on the next sync."
+        } catch { statusMessage = Self.message(error) }
         await refresh()
     }
 
