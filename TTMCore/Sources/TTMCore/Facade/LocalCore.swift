@@ -204,16 +204,27 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
 
     public func accounts() async throws -> [AccountSummary] {
         let refs = Dictionary(uniqueKeysWithValues: try store.allConnections().map { ($0.id, $0.keychainRef) })
+        let now = clock.now()
         return try store.allAccounts().map { rec in
             let nick = rec.nickname?.trimmingCharacters(in: .whitespacesAndNewlines)
             let renamed = !(nick?.isEmpty ?? true)
+            let cls = AccountClass(rawValue: rec.accountClass) ?? .unclassified
+            let promo = Self.promo(of: rec, class: cls)
             return AccountSummary(
                 id: rec.id, name: renamed ? nick! : rec.name, syncedName: rec.name, isRenamed: renamed,
-                accountClass: AccountClass(rawValue: rec.accountClass) ?? .unclassified,
+                accountClass: cls,
                 balance: Money(cents: rec.balanceCents), currency: rec.currency, archived: rec.archived,
                 source: Self.source(keychainRef: refs[rec.connectionId]), balanceDate: rec.balanceDate,
-                aprBps: rec.aprBps)
+                aprBps: rec.aprBps, status: AccountStatus(rawValue: rec.status) ?? .active,
+                promo: promo, effectiveAprBps: .some(promo?.isActive(at: now) == true ? promo?.aprBps : rec.aprBps))
         }
+    }
+
+    /// A stored promo counts only while the account is a credit card (like APR
+    /// on a non-debt class, it's kept but hidden if the class changes).
+    private static func promo(of rec: AccountRecord, class cls: AccountClass) -> PromoRate? {
+        guard cls == .creditCard, let bps = rec.promoAprBps, let ends = rec.promoEndsOn else { return nil }
+        return PromoRate(aprBps: bps, endsOn: ends)
     }
 
     private static func source(keychainRef: String?) -> AccountSource {
@@ -255,6 +266,36 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
             }
         }
         try store.setAccountAPR(id: accountId, aprBps: aprBps)
+    }
+
+    public func setPromoAPR(accountId: String, promo: PromoRate?) async throws {
+        let rec = try requireAccount(accountId)
+        if let promo {
+            guard AccountClass(rawValue: rec.accountClass) == .creditCard else {
+                throw TTMError.invalidOperation("Promotional rates are for credit cards. Classify it as a credit card first.")
+            }
+            guard (0...Self.maxAPRBps).contains(promo.aprBps) else {
+                throw TTMError.invalidOperation("Enter a promo rate between 0% and 100%.")
+            }
+            guard promo.isActive(at: clock.now()) else {
+                throw TTMError.invalidOperation("That end date has passed. Pick today or a later day.")
+            }
+        }
+        try store.setAccountPromo(id: accountId, aprBps: promo?.aprBps, endsOn: promo?.endsOn)
+    }
+
+    public func promoOutlook() async throws -> PromoOutlook {
+        let now = clock.now()
+        let cards: [PromoMath.Card] = try store.allAccounts().compactMap { rec in
+            guard !rec.archived, AccountStatus(rawValue: rec.status)?.counts ?? true,
+                  let promo = Self.promo(of: rec, class: AccountClass(rawValue: rec.accountClass) ?? .unclassified)
+            else { return nil }
+            let nick = rec.nickname?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return PromoMath.Card(accountId: rec.id, name: (nick?.isEmpty ?? true) ? rec.name : nick!,
+                                  balanceCents: abs(rec.balanceCents), promo: promo, regularAprBps: rec.aprBps)
+        }
+        let liquid = try await netWorthSummary().liquid
+        return PromoMath.outlook(cards: cards, liquidCents: liquid.cents, now: now)
     }
 
     public func addManualAccount(name: String, accountClass: AccountClass, balance: Money,
@@ -310,7 +351,32 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
 
     public func restoreAccount(accountId: String) async throws {
         _ = try requireAccount(accountId)
-        try store.setAccountArchived(id: accountId, archived: false)
+        // Its history was removed with it: fetch the whole backfill again.
+        try store.restoreAccount(id: accountId, resyncFrom: clock.now() - SyncEngine.defaultBackfill)
+    }
+
+    public func setAccountStatus(accountId: String, status: AccountStatus) async throws {
+        let rec = try requireAccount(accountId)
+        let current = AccountStatus(rawValue: rec.status) ?? .active
+        if status == .paused, try source(of: rec) != .synced {
+            throw TTMError.invalidOperation("Only bank accounts sync, so there’s nothing to pause.")
+        }
+        // Coming out of a pause: catch up from the last balance, not just the
+        // last sync of the connection (which kept running without it).
+        var resyncFrom: Int64?
+        if current == .paused && status != .paused {
+            let now = clock.now()
+            resyncFrom = (rec.balanceDate ?? now - SyncEngine.defaultBackfill) - SyncEngine.overlap
+        }
+        try store.setAccountStatus(id: accountId, status: status, resyncFrom: resyncFrom)
+    }
+
+    public func holdsNewAccounts() async throws -> Bool {
+        try store.setting(Store.holdNewAccountsKey) == "1"
+    }
+
+    public func setHoldsNewAccounts(_ hold: Bool) async throws {
+        try store.setSetting(Store.holdNewAccountsKey, hold ? "1" : nil)
     }
 
     public func setAccountClass(accountId: String, accountClass: AccountClass) async throws {
@@ -333,7 +399,8 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
     public func netWorthSummary() async throws -> NetWorthSummary {
         let accounts = try store.allAccounts()
         let balances: [AccountBalance] = accounts.compactMap { rec in
-            guard let cls = AccountClass(rawValue: rec.accountClass), !rec.archived else { return nil }
+            guard let cls = AccountClass(rawValue: rec.accountClass), !rec.archived,
+                  AccountStatus(rawValue: rec.status)?.counts ?? true else { return nil }
             // Liabilities are kept as positive magnitudes for the rollup; some
             // institutions report debt balances as negative. TODO: per-institution
             // sign handling.

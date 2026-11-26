@@ -30,10 +30,14 @@ public struct SyncOutcome: Equatable, Sendable {
     public let connectionsSucceeded: Int
     public let connectionsFailed: Int
     public let newTransactions: Int
-    public init(connectionsSucceeded: Int, connectionsFailed: Int, newTransactions: Int) {
+    /// Accounts that appeared on an already-synced connection and were held as
+    /// excluded (Settings → hold new accounts).
+    public let heldAccounts: Int
+    public init(connectionsSucceeded: Int, connectionsFailed: Int, newTransactions: Int, heldAccounts: Int = 0) {
         self.connectionsSucceeded = connectionsSucceeded
         self.connectionsFailed = connectionsFailed
         self.newTransactions = newTransactions
+        self.heldAccounts = heldAccounts
     }
 }
 
@@ -119,12 +123,21 @@ public struct AccountSummary: Equatable, Sendable, Identifiable {
     /// Annual interest rate in basis points (2299 = 22.99%), user-entered for
     /// debt accounts; nil when not set.
     public let aprBps: Int?
+    /// Whether it counts toward totals and whether it syncs (ADR-0025).
+    public let status: AccountStatus
+    /// A credit card's promotional rate, possibly already ended (check
+    /// `isActive(at:)`); nil for other classes. ADR-0026.
+    public let promo: PromoRate?
+    /// The rate that applies now: an active promo's, else `aprBps`.
+    public let effectiveAprBps: Int?
     public init(id: String, name: String, syncedName: String, isRenamed: Bool,
                 accountClass: AccountClass, balance: Money, currency: String, archived: Bool,
-                source: AccountSource = .synced, balanceDate: UnixTime? = nil, aprBps: Int? = nil) {
+                source: AccountSource = .synced, balanceDate: UnixTime? = nil, aprBps: Int? = nil,
+                status: AccountStatus = .active, promo: PromoRate? = nil, effectiveAprBps: Int?? = nil) {
         self.id = id; self.name = name; self.syncedName = syncedName; self.isRenamed = isRenamed
         self.accountClass = accountClass; self.balance = balance; self.currency = currency; self.archived = archived
-        self.source = source; self.balanceDate = balanceDate; self.aprBps = aprBps
+        self.source = source; self.balanceDate = balanceDate; self.aprBps = aprBps; self.status = status
+        self.promo = promo; self.effectiveAprBps = effectiveAprBps ?? aprBps
     }
 }
 
@@ -208,6 +221,11 @@ public protocol CoreFacade: Sendable {
     /// Set a debt account's current interest rate in basis points (nil clears).
     /// Kept by sync, which never reports rates. Refused for non-debt classes.
     func setAccountAPR(accountId: String, aprBps: Int?) async throws
+    /// Set (nil clears) a credit card's promotional rate and the day it ends.
+    /// Credit cards only; the end day can't be in the past.
+    func setPromoAPR(accountId: String, promo: PromoRate?) async throws
+    /// Active promos against counting liquid cash, earliest end first.
+    func promoOutlook() async throws -> PromoOutlook
     /// A manually tracked account: no connection, the user enters its value.
     /// Debts take the positive amount owed. `asOf` is the start of the chosen day.
     func addManualAccount(name: String, accountClass: AccountClass, balance: Money, asOf: UnixTime) async throws -> String
@@ -222,8 +240,17 @@ public protocol CoreFacade: Sendable {
     /// transactions and history and becomes a hidden tombstone sync skips, so
     /// the bridge can't re-import it.
     func deleteAccount(accountId: String) async throws
-    /// Un-delete a synced account: it syncs again from the next sync's window.
+    /// Un-delete a synced account. The next sync reaches back the full backfill
+    /// window, so its history returns.
     func restoreAccount(accountId: String) async throws
+    /// Active / excluded (keeps syncing, left out of totals) / paused (stops
+    /// syncing, keeps its last balance). Only synced accounts can pause; resuming
+    /// makes the next sync reach back to where the account left off.
+    func setAccountStatus(accountId: String, status: AccountStatus) async throws
+    /// When on, accounts that appear on an already-synced connection start out
+    /// excluded until the user includes them. Per profile; off by default.
+    func holdsNewAccounts() async throws -> Bool
+    func setHoldsNewAccounts(_ hold: Bool) async throws
 
     // Net worth
     func netWorthSummary() async throws -> NetWorthSummary

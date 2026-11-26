@@ -5,11 +5,11 @@ Resume pointer for Track The Money. See [PLAN.md](PLAN.md) (product) and
 Swift 6.3 toolchain.
 
 **Build & test:**
-- Core: `cd TTMCore && swift build && swift test` — **79 passing + 2 live tests skipped by default**.
+- Core: `cd TTMCore && swift build && swift test` — **95 passing + 2 live tests skipped by default**.
 - App: `cd app && swift build` (or `swift run TrackTheMoney` on macOS) — builds clean.
 - UI tests: `xcodebuild test -scheme TrackTheMoney -only-testing:TrackTheMoneyUITests`
   (XCUITest target `app/UITests`) — drives the categorize/create/review/promotion + AI
-  suggestion flows, backup surface, profiles and account management on the Simulator; **13 passing** (live test excluded). (Launch args: `-resetStore` for a clean
+  suggestion flows, backup surface, profiles and account management on the Simulator; **15 passing** (live test excluded). (Launch args: `-resetStore` for a clean
   DB; `-stubAI` forces the deterministic heuristic categorizer; `-noAI` disables it.)
 - Xcode (multiplatform): `xcodegen generate && open TrackTheMoney.xcodeproj` — see [BUILD.md](BUILD.md).
 
@@ -119,6 +119,34 @@ Swift 6.3 toolchain.
   lists debts highest-rate first with a balance-weighted average. No migration
   (`apr_bps` and `archived` were already in v1). **14 new engine tests**
   (`AccountManagementTests`) + 2 UI tests (`AccountsUITests`).
+- ✅ **Excluded and paused accounts** (ACCOUNT_MANAGEMENT_PLAN §7, ADR-0025) —
+  migration **v5** adds `accounts.status` (`active | excluded | paused`) and
+  `resync_from`; the old `excluded` *class* became the status. **Excluded**
+  keeps syncing but leaves net worth, both series, spending, interest and
+  property equity, and its transactions are hidden from every list, search,
+  count and transfer match. **Paused** stops syncing and holds its last balance. Resuming
+  or restoring a deleted account widens the next fetch (last balance − 7 days /
+  the full 120-day backfill), so "Sync again" now brings history back. Opt-in
+  **Hold new accounts for review** (Settings → SimpleFIN connection) makes
+  accounts that appear later arrive excluded. Accounts groups *Paused* and
+  *Excluded from totals*; swipe left / context menu toggles them. **10 new engine
+  tests** (`AccountStatusTests`) + 1 UI test.
+- ✅ **Credit-card promo APRs** ([PROMO_APR_PLAN.md](plans/PROMO_APR_PLAN.md),
+  ADR-0026) — migration **v6** (`promo_apr_bps`, `promo_ends_on`). The rate sheet
+  for a credit card takes a promo rate and its last day; while it lasts it is the
+  card's effective rate (Accounts "0% until …", Debt & Interest order and
+  weighted average). New **Promo payoffs** section on Debt & Interest: liquid cash
+  applied to promos earliest-deadline first → covered / short by $X, the monthly
+  payment to clear by the end date, and rough interest after. Pure math in
+  `Interest/PromoPayoff.swift`. Next ideas (buffer, income-aware coverage, promo
+  balance) in the plan's §5. **6 new engine tests** (`PromoAPRTests`) + 1 UI test.
+- ✅ **Mac pass (2026-11-26)** of excluded/paused/hold and promos, run by hand-held
+  XCUITest against a real store (demo profile + a throwaway profile on SimpleFIN's
+  demo bank). It found two Mac-only bugs, both fixed: Debt & Interest reused
+  account ids across List sections, so the macOS List showed a card's
+  interest-paid row in place of its rate row (rows are now keyed per section);
+  and a card with a promo but no regular rate couldn't save with the promo
+  turned off.
 
 ### Next up (resume here)
 1. 🟡 **Live SimpleFIN verification — engine done, app run remaining.**

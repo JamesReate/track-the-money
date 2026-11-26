@@ -40,11 +40,15 @@ public struct AccountRecord: Codable, FetchableRecord, PersistableRecord {
     public var balanceCents: Int64
     public var availableCents: Int64?
     public var balanceDate: Int64?
-    public var archived: Bool
+    public var archived: Bool                // deleted by the user (a tombstone sync skips)
     public var createdAt: Int64
+    public var status: String = AccountStatus.active.rawValue   // AccountStatus raw value
+    public var resyncFrom: Int64? = nil      // next sync reaches back to here (then cleared)
+    public var promoAprBps: Int? = nil       // credit card promo rate (user-entered)
+    public var promoEndsOn: Int64? = nil     // start of the promo's last day
 
     enum CodingKeys: String, CodingKey {
-        case id, name, nickname, currency, subclass, archived
+        case id, name, nickname, currency, subclass, archived, status
         case connectionId = "connection_id"
         case sfinAccountId = "sfin_account_id"
         case accountClass = "class"
@@ -53,6 +57,9 @@ public struct AccountRecord: Codable, FetchableRecord, PersistableRecord {
         case availableCents = "available_cents"
         case balanceDate = "balance_date"
         case createdAt = "created_at"
+        case resyncFrom = "resync_from"
+        case promoAprBps = "promo_apr_bps"
+        case promoEndsOn = "promo_ends_on"
     }
 }
 

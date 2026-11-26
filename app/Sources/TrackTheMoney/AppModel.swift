@@ -33,6 +33,10 @@ public final class AppModel {
     public var accounts: [AccountSummary] = []
     /// Synced accounts the user deleted (hidden tombstones sync skips).
     public var deletedAccounts: [AccountSummary] = []
+    /// Settings: accounts that appear later on a connection start out excluded.
+    public var holdsNewAccounts = false
+    /// Active credit-card promos against liquid cash (Debt & Interest).
+    public var promoOutlook: PromoOutlook?
     public var recentTransactions: [TransactionRecord] = []
     public var properties: [PropertySummary] = []
     public var interest: InterestRollup?
@@ -139,6 +143,8 @@ public final class AppModel {
             let allAccounts = try await core.accounts()
             accounts = allAccounts.filter { !$0.archived }
             deletedAccounts = allAccounts.filter { $0.archived && $0.source == .synced }
+            holdsNewAccounts = try await core.holdsNewAccounts()
+            promoOutlook = try await core.promoOutlook()
             categories = try await core.categories()
             categoryCounts = try await core.categoryTransactionCounts()
             try await reloadTransactions()
@@ -400,6 +406,10 @@ public final class AppModel {
                 statusMessage = "Sync finished with \(outcome.connectionsFailed) connection error\(outcome.connectionsFailed == 1 ? "" : "s")\(detail)."
             } else {
                 statusMessage = "Synced — \(outcome.newTransactions) new transaction\(outcome.newTransactions == 1 ? "" : "s")."
+                if outcome.heldAccounts > 0 {
+                    let n = outcome.heldAccounts
+                    statusMessage += " \(n) new account\(n == 1 ? " is" : "s are") excluded until you include \(n == 1 ? "it" : "them") on Accounts."
+                }
             }
         } catch {
             lastSyncFailed = true
@@ -593,6 +603,18 @@ public final class AppModel {
         return nil
     }
 
+    /// Set a card's promo rate through the end of `endsOn`'s local day, or
+    /// clear it (nil). Returns an error message, nil on success.
+    public func setPromo(accountId: String, aprBps: Int?, endsOn: Date?) async -> String? {
+        do {
+            var promo: PromoRate?
+            if let aprBps, let endsOn { promo = PromoRate(aprBps: aprBps, endsOn: Self.asOfDay(endsOn)) }
+            try await core.setPromoAPR(accountId: accountId, promo: promo)
+        } catch { return Self.message(error) }
+        await refresh()
+        return nil
+    }
+
     public func deleteAccount(_ account: AccountSummary) async {
         do {
             try await core.deleteAccount(accountId: account.id)
@@ -604,8 +626,29 @@ public final class AppModel {
     public func restoreAccount(_ account: AccountSummary) async {
         do {
             try await core.restoreAccount(accountId: account.id)
-            statusMessage = "“\(account.name)” will sync again on the next sync."
+            statusMessage = "“\(account.name)” will sync again, with its history, on the next sync."
         } catch { statusMessage = Self.message(error) }
+        await refresh()
+    }
+
+    /// Include, exclude, pause or resume an account (ADR-0025).
+    public func setStatus(_ account: AccountSummary, to status: AccountStatus) async {
+        do {
+            try await core.setAccountStatus(accountId: account.id, status: status)
+            switch (account.status, status) {
+            case (.paused, .excluded): statusMessage = "“\(account.name)” syncs again but no longer counts toward your totals."
+            case (.paused, _): statusMessage = "“\(account.name)” resumes on the next sync and catches up from where it stopped."
+            case (_, .paused): statusMessage = "“\(account.name)” is paused at its last balance."
+            case (_, .excluded): statusMessage = "“\(account.name)” no longer counts toward your totals."
+            default: statusMessage = "“\(account.name)” counts toward your totals again."
+            }
+        } catch { statusMessage = Self.message(error) }
+        await refresh()
+    }
+
+    public func setHoldsNewAccounts(_ hold: Bool) async {
+        do { try await core.setHoldsNewAccounts(hold) }
+        catch { statusMessage = Self.message(error) }
         await refresh()
     }
 

@@ -70,6 +70,17 @@ struct ConnectionSection: View {
                     }
                 }
                 .disabled(model.isSyncing || model.isClaiming)
+
+                Toggle(isOn: Binding(get: { model.holdsNewAccounts },
+                                     set: { hold in Task { await model.setHoldsNewAccounts(hold) } })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Hold new accounts for review")
+                        Text("Accounts you later share in SimpleFIN Bridge start out excluded from your totals until you include them on Accounts.")
+                            .font(.caption).foregroundStyle(Brand.slate)
+                    }
+                }
+                .tint(Brand.evergreen)
+                .accessibilityIdentifier("holdNewAccounts")
             }
             Text("The connection is stored in this device’s Keychain, never in your data or backups. Your data stays on this device — we can’t see it.")
                 .font(.caption).foregroundStyle(Brand.slate)

@@ -225,9 +225,11 @@ final class AccountManagementTests: XCTestCase {
 
         try await core.setAccountClass(accountId: checking.id, accountClass: .creditCard)
         try await core.setAccountAPR(accountId: checking.id, aprBps: 2299)
+        try await core.setPromoAPR(accountId: checking.id, promo: PromoRate(aprBps: 0, endsOn: C().now()))
         _ = try await core.syncNow()
         let card = try await core.accounts().first { $0.id == checking.id }
         XCTAssertEqual(card?.aprBps, 2299, "sync never reports rates, so it must not erase one")
+        XCTAssertEqual(card?.promo?.aprBps, 0, "nor a promo")
 
         do {
             try await core.setAccountAPR(accountId: checking.id, aprBps: 25_000)

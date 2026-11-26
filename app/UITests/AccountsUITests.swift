@@ -75,6 +75,78 @@ final class AccountsUITests: XCTestCase {
         XCTAssertTrue(text("No accounts", in: app).waitForExistence(timeout: 5), "account wasn't deleted")
     }
 
+    func testExcludeAndIncludeAnAccount() {
+        var app = launch(tab: "accounts", sample: true)
+        let visa = cell("Sapphire Visa", in: app)
+        XCTAssertTrue(visa.waitForExistence(timeout: 15))
+        XCTAssertFalse(text("EXCLUDED FROM TOTALS", in: app).exists)
+
+        visa.swipeLeft()
+        let exclude = app.buttons["Exclude from totals"]
+        XCTAssertTrue(exclude.waitForExistence(timeout: 5), "no exclude action")
+        exclude.tap()
+        XCTAssertTrue(text("EXCLUDED FROM TOTALS", in: app).waitForExistence(timeout: 5), "no excluded section")
+
+        // Its transactions are hidden everywhere — the Visa's Delta fare is gone
+        // from Transactions while checking's Whole Foods stays.
+        var txns = relaunch(app, tab: "transactions")
+        XCTAssertTrue(text("WHOLE FOODS", in: txns).waitForExistence(timeout: 15), "transactions didn't load")
+        XCTAssertFalse(text("DELTA AIR LINES", in: txns).exists, "an excluded account's transaction is listed")
+        txns.terminate()
+
+        app = relaunch(app, tab: "accounts")
+        XCTAssertTrue(cell("Sapphire Visa", in: app).waitForExistence(timeout: 15))
+        cell("Sapphire Visa", in: app).swipeLeft()
+        let include = app.buttons["Include in totals"]
+        XCTAssertTrue(include.waitForExistence(timeout: 5), "no include action")
+        include.tap()
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: text("EXCLUDED FROM TOTALS", in: app))
+        waitForExpectations(timeout: 5)
+
+        txns = relaunch(app, tab: "transactions")
+        XCTAssertTrue(text("DELTA AIR LINES", in: txns).waitForExistence(timeout: 15),
+                      "including the account should bring its transactions back")
+    }
+
+    /// Relaunch on another tab keeping the store (no -resetStore).
+    private func relaunch(_ app: XCUIApplication, tab: String) -> XCUIApplication {
+        app.terminate()
+        let next = XCUIApplication()
+        next.launchArguments = ["-tab", tab]
+        next.launch()
+        return next
+    }
+
+    func testCreditCardPromoAndPayoffOutlook() {
+        let app = launch(tab: "debt", sample: true)
+        let visa = app.buttons["rate-Sapphire Visa"]
+        _ = visa.waitForExistence(timeout: 15)
+        XCTAssertTrue(reveal(visa, in: app), "no rate row for the Visa")
+        visa.tap()
+
+        let toggle = app.switches["promoToggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "cards should offer a promo rate")
+        // Tap the switch itself; the label half of a Form row doesn't flip it.
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        let promo = app.textFields["promoField"]
+        XCTAssertTrue(promo.waitForExistence(timeout: 5), "promo rate field didn't appear")
+        // Defaults: 0% for a year — keep them.
+        app.buttons["aprSave"].tap()
+
+        // 0% now sorts the Visa under the mortgage and drops the weighted average:
+        // $382,000 @ 6.5% and $3,420.77 @ 0% → 6.44%.
+        XCTAssertTrue(text("then 22.99%", in: app).waitForExistence(timeout: 5), "promo not shown on the rate row")
+        XCTAssertTrue(text("6.44%", in: app).exists, "weighted average should use the promo rate")
+
+        // $32,600.55 of checking + savings covers $3,420.77; 12 payments of $285.07.
+        let payoff = app.descendants(matching: .any)["promo-Sapphire Visa"]
+        XCTAssertTrue(reveal(payoff, in: app), "no promo payoff row")
+        XCTAssertTrue(payoff.label.contains("Cash covers it"), payoff.label)
+        XCTAssertTrue(payoff.label.contains("$285.07/mo to clear"), payoff.label)
+        XCTAssertTrue(payoff.label.contains("$65.54/mo in interest"), payoff.label)
+    }
+
     func testCreditCardClassAndInterestRates() {
         let app = launch(tab: "accounts", sample: true)
         XCTAssertTrue(cell("Sapphire Visa", in: app).waitForExistence(timeout: 15))

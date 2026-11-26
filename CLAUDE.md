@@ -55,7 +55,9 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
   - `PROFILES_PLAN.md` — profiles (switchable data sets), shipped; §8 has
     implementation notes.
   - `ACCOUNT_MANAGEMENT_PLAN.md` — delete accounts, manual accounts,
-    credit-card class, APR on debts; shipped.
+    credit-card class, APR on debts, excluded/paused accounts; shipped.
+  - `PROMO_APR_PLAN.md` — credit-card promo rates + payoff outlook; first cut
+    shipped, §5 lists what to think about next.
 
 ## Architecture rules (do not break)
 
@@ -93,7 +95,7 @@ anything; if it *is* wrong, write a superseding ADR rather than quietly breaking
 ## Build & test
 
 ```bash
-cd TTMCore && swift test                 # engine tests (79 + 2 opt-in live, XCTest)
+cd TTMCore && swift test                 # engine tests (95 + 2 opt-in live, XCTest)
 cd app && swift build                    # SwiftUI compiles headlessly (macOS host)
 cd app && swift run TrackTheMoney        # run the Mac app from CLI
 xcodegen generate                        # project.yml → TrackTheMoney.xcodeproj
@@ -210,7 +212,7 @@ stores on one device, one active:
 
 ## Account management (shipped)
 
-Per `docs/plans/ACCOUNT_MANAGEMENT_PLAN.md`, decided in ADR-0024:
+Per `docs/plans/ACCOUNT_MANAGEMENT_PLAN.md`, decided in ADR-0024 and ADR-0025:
 
 - Manual accounts are normal `accounts` rows under a hidden connection
   (`Store.manualConnectionId` / `manualKeychainRef`, both `"manual"`).
@@ -222,11 +224,27 @@ Per `docs/plans/ACCOUNT_MANAGEMENT_PLAN.md`, decided in ADR-0024:
 - `deleteAccount`: manual/sample → row delete; synced → tombstone
   (`archived = 1`, data removed). Sync skips archived accounts, so `archived`
   now means "deleted by the user", not just "hidden".
+- Whether an account counts or syncs is `accounts.status` (v5), not its class:
+  `excluded` syncs but counts nowhere and its transactions are hidden — any new
+  user-facing query over accounts must filter `status <> 'excluded'`, and over
+  transactions must apply `Store.visibleTxn`; `paused` is skipped by sync and
+  still counts.
+  `resync_from` widens a connection's next fetch for a resumed/restored
+  account (`SyncEngine.windowStart`); a successful sync clears it.
+- `settings.hold_new_accounts = "1"` makes accounts first seen on an
+  already-synced connection arrive excluded (`SyncOutcome.heldAccounts`).
+- Credit-card promos (ADR-0026, v6): `promo_apr_bps` + `promo_ends_on` (start of
+  the last local day; active until that day ends — `PromoRate.isActive`). Use
+  `AccountSummary.effectiveAprBps` wherever "the rate now" matters. The payoff
+  outlook (`PromoMath`, pure) applies counting liquid cash earliest-deadline first.
 - `creditCard` rolls up as unsecured debt (NetWorth.summary, debt-series SQL).
   APR is `accounts.apr_bps` (basis points), debt classes only, set by the user;
   sync never writes it.
 - In a `List`, a `.buttonStyle(.plain)` row only takes taps on its content —
-  add `.contentShape(Rectangle())`. Don't round-trip fractional `Decimal`s
+  add `.contentShape(Rectangle())`. Never reuse the same row ids in two
+  sections of one `List` (e.g. account ids in both "rates" and "interest
+  paid"): macOS reuses one section's row in the other. Prefix them per
+  section (`DebtInterestView.keyed`). Don't round-trip fractional `Decimal`s
   through `NSDecimalNumber.intValue` (returns garbage); round first or use Int64.
 
 ## Gotchas
@@ -236,7 +254,8 @@ Per `docs/plans/ACCOUNT_MANAGEMENT_PLAN.md`, decided in ADR-0024:
 - GRDB is pinned `from: 6.29.0`; code uses 6.x APIs (`busyMode`,
   `didInsert(_:)`); `Database` is `@unchecked Sendable`.
 - Migrations are append-only: v1 schema, v2 FTS5 (+triggers), v3 account
-  nickname, v4 uncategorized partial index. Category tree/color seeding is NOT a
+  nickname, v4 uncategorized partial index, v5 account status + resync_from,
+  v6 promo APR. Category tree/color seeding is NOT a
   migration — `DefaultData.ensureCategories` reconciles idempotently at startup
   and must never clobber user edits.
 - SimpleFIN error payload key is `errors` (not `errlist`) — guarded by

@@ -219,6 +219,30 @@ public final class Database: @unchecked Sendable {
             try db.execute(sql: "CREATE INDEX idx_txn_uncat ON transactions(category_id) WHERE category_id IS NULL")
         }
 
+        register("v5_account_status") { db in
+            // Whether an account counts and syncs, separate from what kind it is
+            // (ADR-0025). `resync_from` widens the next sync's window back to
+            // where a paused or restored account left off; sync clears it.
+            // "excluded" was an AccountClass; it moves here, and the class falls
+            // back to unclassified since the real kind was never recorded.
+            try db.execute(sql: """
+            ALTER TABLE accounts ADD COLUMN status TEXT NOT NULL DEFAULT 'active'
+              CHECK (status IN ('active', 'excluded', 'paused'));
+            ALTER TABLE accounts ADD COLUMN resync_from INTEGER;
+            UPDATE accounts SET status = 'excluded', class = 'unclassified' WHERE class = 'excluded';
+            """)
+        }
+
+        register("v6_promo_apr") { db in
+            // A credit card's promotional rate and the day it ends (start of that
+            // local day, sent by the app). User-entered; sync never touches it.
+            // ADR-0026.
+            try db.execute(sql: """
+            ALTER TABLE accounts ADD COLUMN promo_apr_bps INTEGER;
+            ALTER TABLE accounts ADD COLUMN promo_ends_on INTEGER;
+            """)
+        }
+
         // ai_suggestions lands in a later migration with the AI (paid) feature.
         return migrator
     }

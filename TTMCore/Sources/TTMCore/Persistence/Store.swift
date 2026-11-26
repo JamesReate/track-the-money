@@ -69,17 +69,80 @@ public struct Store: Sendable {
         }
     }
 
+    /// Set or (with nils) clear a card's promotional rate.
+    public func setAccountPromo(id: String, aprBps: Int?, endsOn: Int64?) throws {
+        try queue.write { db in
+            try db.execute(sql: "UPDATE accounts SET promo_apr_bps = ?, promo_ends_on = ? WHERE id = ?",
+                           arguments: [aprBps, endsOn, id])
+        }
+    }
+
     public func setAccountAPR(id: String, aprBps: Int?) throws {
         try queue.write { db in
             try db.execute(sql: "UPDATE accounts SET apr_bps = ? WHERE id = ?", arguments: [aprBps, id])
         }
     }
 
-    public func setAccountArchived(id: String, archived: Bool) throws {
+    /// Set whether an account counts / syncs. `resyncFrom` (when given) widens
+    /// the next sync's window back to that time for this account's connection.
+    public func setAccountStatus(id: String, status: AccountStatus, resyncFrom: Int64?) throws {
         try queue.write { db in
-            try db.execute(sql: "UPDATE accounts SET archived = ? WHERE id = ?", arguments: [archived, id])
+            try db.execute(sql: "UPDATE accounts SET status = ?, resync_from = COALESCE(?, resync_from) WHERE id = ?",
+                           arguments: [status.rawValue, resyncFrom, id])
         }
     }
+
+    /// Un-delete a tombstone and have the next sync reach back to `resyncFrom`.
+    public func restoreAccount(id: String, resyncFrom: Int64) throws {
+        try queue.write { db in
+            try db.execute(sql: "UPDATE accounts SET archived = 0, resync_from = ? WHERE id = ?",
+                           arguments: [resyncFrom, id])
+        }
+    }
+
+    /// The earliest pending `resync_from` among a connection's live accounts.
+    public func earliestResync(connectionId: String) throws -> Int64? {
+        try queue.read { db in
+            try Int64.fetchOne(db, sql: """
+                SELECT MIN(resync_from) FROM accounts
+                WHERE connection_id = ? AND archived = 0 AND status <> 'paused'
+                """, arguments: [connectionId])
+        }
+    }
+
+    /// After a successful sync of a connection its catch-up windows are spent.
+    /// A paused account keeps its own until it resumes.
+    public func clearResync(connectionId: String) throws {
+        try queue.write { db in
+            try db.execute(sql: """
+                UPDATE accounts SET resync_from = NULL
+                WHERE connection_id = ? AND archived = 0 AND status <> 'paused'
+                """, arguments: [connectionId])
+        }
+    }
+
+    // MARK: Settings (per store, so per profile)
+
+    public func setting(_ key: String) throws -> String? {
+        try queue.read { try String.fetchOne($0, sql: "SELECT value FROM settings WHERE key = ?", arguments: [key]) }
+    }
+
+    public func setSetting(_ key: String, _ value: String?) throws {
+        try queue.write { db in
+            if let value {
+                try db.execute(sql: """
+                    INSERT INTO settings (key, value) VALUES (?, ?)
+                    ON CONFLICT (key) DO UPDATE SET value = excluded.value
+                    """, arguments: [key, value])
+            } else {
+                try db.execute(sql: "DELETE FROM settings WHERE key = ?", arguments: [key])
+            }
+        }
+    }
+
+    /// Settings key: accounts that appear on an already-synced connection start
+    /// out excluded until the user includes them. "1" = on; absent = off.
+    public static let holdNewAccountsKey = "hold_new_accounts"
 
     /// Delete an account row; transactions, snapshots, splits and property-debt
     /// links cascade. Surviving transfer legs are un-paired first.
@@ -251,9 +314,16 @@ public struct Store: Sendable {
 
     // MARK: Transaction listing / search
 
+    /// SQL predicate on a transactions alias `t`: the row belongs to an account
+    /// that counts. An excluded account's transactions are stored (and still
+    /// categorized by rules, so including it again is seamless) but read by
+    /// nothing the user sees — ADR-0025.
+    static let visibleTxn = "t.account_id NOT IN (SELECT id FROM accounts WHERE status = 'excluded')"
+
+    /// Transactions of counting accounts only (see `visibleTxn`).
     public func transactions(_ q: TxnQuery) throws -> [TransactionRecord] {
         var sql = "SELECT t.* FROM transactions t"
-        var conditions: [String] = []
+        var conditions: [String] = [Self.visibleTxn]
         var args: [DatabaseValueConvertible] = []
 
         if let text = q.searchText, !text.isEmpty {
@@ -272,7 +342,7 @@ public struct Store: Sendable {
         if let to = q.to { conditions.append("t.posted_at <= ?"); args.append(to) }
         if !q.includePending { conditions.append("t.pending = 0") }
 
-        if !conditions.isEmpty { sql += " WHERE " + conditions.joined(separator: " AND ") }
+        sql += " WHERE " + conditions.joined(separator: " AND ")
         sql += " ORDER BY t.posted_at DESC LIMIT ?"
         args.append(q.limit)
 
@@ -301,12 +371,15 @@ public struct Store: Sendable {
         }
     }
 
+    /// Unpaired, uncategorized transactions of counting accounts: an excluded
+    /// account can't turn a real payment into a transfer.
     public func transferCandidates() throws -> [TransferCandidate] {
         try queue.read { db in
             try TransferCandidate.fetchAll(db, sql: """
-                SELECT id, account_id, amount_cents, posted_at
-                FROM transactions
-                WHERE is_transfer = 0 AND category_id IS NULL AND amount_cents <> 0
+                SELECT t.id, t.account_id, t.amount_cents, t.posted_at
+                FROM transactions t
+                WHERE t.is_transfer = 0 AND t.category_id IS NULL AND t.amount_cents <> 0
+                  AND \(Self.visibleTxn)
                 """)
         }
     }
@@ -346,20 +419,24 @@ public struct Store: Sendable {
         try queue.read { try CategoryRecord.fetchOne($0, key: id) }
     }
 
-    /// Transaction count per assigned category id (uncategorized rows excluded).
+    /// Transaction count per assigned category id (uncategorized rows and
+    /// excluded accounts left out).
     public func transactionCountsByCategory() throws -> [String: Int] {
         struct Row: FetchableRecord, Decodable { var id: String; var n: Int }
         return try queue.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT category_id AS id, COUNT(*) AS n FROM transactions
-                WHERE category_id IS NOT NULL GROUP BY category_id
+                SELECT t.category_id AS id, COUNT(*) AS n FROM transactions t
+                WHERE t.category_id IS NOT NULL AND \(Self.visibleTxn)
+                GROUP BY t.category_id
                 """)
         }.reduce(into: [:]) { $0[$1.id] = $1.n }
     }
 
     public func uncategorizedCount() throws -> Int {
         try queue.read { db in
-            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM transactions WHERE category_id IS NULL") ?? 0
+            try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM transactions t WHERE t.category_id IS NULL AND \(Self.visibleTxn)
+                """) ?? 0
         }
     }
 
@@ -414,7 +491,8 @@ public struct Store: Sendable {
         public var cents: Int64
     }
 
-    /// Spend (money out) by category in [from, to]; excludes transfers.
+    /// Spend (money out) by category in [from, to]; excludes transfers and
+    /// excluded accounts.
     public func spendingByCategory(from: Int64, to: Int64) throws -> [SpendingRow] {
         try queue.read { db in
             try SpendingRow.fetchAll(db, sql: """
@@ -422,8 +500,9 @@ public struct Store: Sendable {
                        COALESCE(c.name, 'Uncategorized') AS name,
                        SUM(ABS(t.amount_cents)) AS cents
                 FROM transactions t
+                JOIN accounts a ON a.id = t.account_id
                 LEFT JOIN categories c ON c.id = t.category_id
-                WHERE t.amount_cents < 0 AND t.is_transfer = 0
+                WHERE t.amount_cents < 0 AND t.is_transfer = 0 AND a.status <> 'excluded'
                   AND t.posted_at >= ? AND t.posted_at <= ?
                 GROUP BY 1, 2
                 ORDER BY cents DESC
@@ -471,6 +550,7 @@ public struct Store: Sendable {
                     WHERE t.posted_at >= ? AND t.posted_at <= ?
                 ) x
                 JOIN accounts a ON a.id = x.account_id
+                WHERE a.status <> 'excluded'
                 GROUP BY a.id, a.name
                 HAVING cents <> 0
                 ORDER BY cents DESC
@@ -493,14 +573,15 @@ public struct Store: Sendable {
         }
     }
 
-    /// All snapshots joined to their account's class (excludes archived/excluded).
+    /// All snapshots joined to their account's class (skips deleted and
+    /// excluded accounts).
     public func seriesSnapshots() throws -> [SeriesSnapshot] {
         try queue.read { db in
             try SnapRow.fetchAll(db, sql: """
                 SELECT s.account_id, a.class, s.balance_cents, s.balance_date
                 FROM balance_snapshots s
                 JOIN accounts a ON a.id = s.account_id
-                WHERE a.archived = 0 AND a.class <> 'excluded'
+                WHERE a.archived = 0 AND a.status <> 'excluded'
                 """)
         }.map { row in
             let cls = AccountClass(rawValue: row.accountClass) ?? .unclassified
@@ -528,7 +609,8 @@ public struct Store: Sendable {
                 SELECT s.account_id, a.class, s.balance_cents, s.balance_date
                 FROM balance_snapshots s
                 JOIN accounts a ON a.id = s.account_id
-                WHERE a.archived = 0 AND a.class IN ('securedDebt', 'creditCard', 'unsecuredDebt')
+                WHERE a.archived = 0 AND a.status <> 'excluded'
+                  AND a.class IN ('securedDebt', 'creditCard', 'unsecuredDebt')
                 """)
         }.map { row in
             DebtSeriesSnapshot(accountId: row.accountId, secured: row.accountClass == AccountClass.securedDebt.rawValue,
@@ -575,19 +657,22 @@ public struct Store: Sendable {
                   COALESCE((SELECT pv.value_cents FROM property_values pv
                             WHERE pv.property_id = p.id ORDER BY pv.as_of DESC LIMIT 1), 0) AS value_cents,
                   COALESCE((SELECT SUM(ABS(a.balance_cents)) FROM property_debts pd
-                            JOIN accounts a ON a.id = pd.account_id WHERE pd.property_id = p.id), 0) AS debt_cents
+                            JOIN accounts a ON a.id = pd.account_id
+                            WHERE pd.property_id = p.id AND a.status <> 'excluded'), 0) AS debt_cents
                 FROM properties p
                 ORDER BY p.name
                 """)
         }
     }
 
-    /// Total magnitude of all debt accounts linked to any property.
+    /// Total magnitude of the counting debt accounts linked to any property (an
+    /// excluded mortgage leaves liabilities, so it leaves equity too).
     public func linkedDebtTotalCents() throws -> Int64 {
         try queue.read { db in
             try Int64.fetchOne(db, sql: """
                 SELECT COALESCE(SUM(ABS(a.balance_cents)), 0)
                 FROM property_debts pd JOIN accounts a ON a.id = pd.account_id
+                WHERE a.status <> 'excluded'
                 """) ?? 0
         }
     }

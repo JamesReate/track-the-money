@@ -35,7 +35,8 @@ decided and why. New feature plans go here as `<FEATURE>_PLAN.md`.
 | [CATEGORIZATION_PLAN.md](plans/CATEGORIZATION_PLAN.md) | ✅ Shipped — category tree, rules, on-device AI suggestions. |
 | [DATA_PORTABILITY_PLAN.md](plans/DATA_PORTABILITY_PLAN.md) | ✅ Shipped — `.ttmbackup` export/restore with undo. |
 | [PROFILES_PLAN.md](plans/PROFILES_PLAN.md) | ✅ Shipped — switchable profiles, open a backup as a profile, per-profile connection status. |
-| [ACCOUNT_MANAGEMENT_PLAN.md](plans/ACCOUNT_MANAGEMENT_PLAN.md) | ✅ Shipped — delete accounts, manually tracked accounts, credit-card class, interest rates on debts. |
+| [ACCOUNT_MANAGEMENT_PLAN.md](plans/ACCOUNT_MANAGEMENT_PLAN.md) | ✅ Shipped — delete accounts, manually tracked accounts, credit-card class, interest rates on debts, excluded and paused accounts. |
+| [PROMO_APR_PLAN.md](plans/PROMO_APR_PLAN.md) | ✅ Shipped (first cut) — credit-card promo rates with an end date; can cash clear them in time. |
 
 ## Elsewhere in the repo
 

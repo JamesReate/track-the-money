@@ -1,6 +1,8 @@
 import Foundation
 
-/// How an account rolls up into net worth (PLAN.md §3.1).
+/// How an account rolls up into net worth (PLAN.md §3.1). Whether it counts at
+/// all is its `AccountStatus` — "excluded" used to be a class here and became a
+/// status in migration v5 (ADR-0025), so excluding keeps the account's kind.
 public enum AccountClass: String, Codable, CaseIterable, Sendable {
     case liquid          // + asset: checking, savings, money market
     case investment      // + asset: brokerage, retirement, HSA
@@ -9,7 +11,6 @@ public enum AccountClass: String, Codable, CaseIterable, Sendable {
     case unsecuredDebt   // - liability: personal/student loans, other unsecured
     case realEstate      // + asset (manual value); see Property
     case income          // tracked, not a net-worth balance
-    case excluded        // ignored
     case unclassified    // default until the user (or guesser) assigns
 
     /// Sign of this class's balance in the net-worth rollup.
@@ -18,7 +19,7 @@ public enum AccountClass: String, Codable, CaseIterable, Sendable {
         switch self {
         case .liquid, .investment, .realEstate: return .asset
         case .securedDebt, .creditCard, .unsecuredDebt: return .liability
-        case .income, .excluded, .unclassified: return .ignored
+        case .income, .unclassified: return .ignored
         }
     }
 

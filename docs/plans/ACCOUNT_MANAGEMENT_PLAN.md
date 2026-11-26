@@ -1,7 +1,8 @@
 # Account management — delete, manual accounts, credit cards, interest rates
 
-- **Status:** Shipped (2026-11-25)
-- **Decided in:** [ADR-0024](../adr/0024-manual-accounts-and-account-deletion.md)
+- **Status:** Shipped (2026-11-25; §7 2026-11-26)
+- **Decided in:** [ADR-0024](../adr/0024-manual-accounts-and-account-deletion.md),
+  [ADR-0025](../adr/0025-account-status-excluded-and-paused.md)
 
 ## 1. Ask
 
@@ -136,7 +137,42 @@ average.
 - A `.buttonStyle(.plain)` row in a `List` only takes taps on its content, not
   the spacer between; the rate rows need `.contentShape(Rectangle())`.
 
-## 7. Out of scope
+## 7. Follow-up ask: excluded and paused accounts
+
+> When I click sync, will it bring back any deleted accounts? Maybe we need
+> better control over that, or like disabled accounts.
+
+Sync never brings a deleted account back (D3). But delete was the only way to
+stop an account counting, and it discards history. Decided in ADR-0025.
+
+### D7 — A status, separate from the class
+
+`accounts.status` (migration v5): **active**, **excluded** (syncs, left out of
+net worth, the series, spending, interest and property equity, and its
+transactions hidden from every list, search, count and transfer match),
+**paused** (not synced, counts at its last balance; synced accounts only). The
+old `excluded` *class* migrates to the status, so excluding a credit card keeps
+it a credit card.
+
+### D8 — Catch-up windows
+
+The fetch window is per connection, so an account that was paused, or deleted
+and restored, would otherwise miss everything before the connection's last
+sync. `accounts.resync_from` widens the next fetch: last balance date − 7 days
+on resume, now − 120 days on restore. Never past the backfill; cleared after a
+successful sync.
+
+### D9 — Hold new accounts (opt-in)
+
+Settings → SimpleFIN connection → *Hold new accounts for review*. When on,
+accounts appearing on an already-synced connection arrive excluded, and the
+sync message says how many. Off by default; a first sync is never held.
+
+Surface: Accounts groups *Paused* and *Excluded from totals* below the active
+list. Swipe left / context menu → *Exclude from totals* / *Include in totals*,
+*Pause syncing* / *Resume syncing*. Debt & Interest ignores excluded debts.
+
+## 8. Out of scope
 
 Deleting a whole SimpleFIN connection; manual transactions; multi-currency
 manual accounts (USD, like everything else today); merging a manual account

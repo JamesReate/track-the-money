@@ -27,9 +27,10 @@ public struct SyncEngine: Sendable {
     public static let defaultBackfill: UnixTime = 120 * Time.secondsPerDay
 
     public func run() async -> SyncOutcome {
-        var succeeded = 0, failed = 0, newTxns = 0
+        var succeeded = 0, failed = 0, newTxns = 0, held = 0
         let now = clock.now()
         let rules = (try? categorizer.loadRules()) ?? []
+        let holdNew = (try? store.setting(Store.holdNewAccountsKey)) == "1"
         // Sample-data and manual-account rows have no credential by design;
         // syncing them would only report a failure and flip them to "error".
         let connections = ((try? store.allConnections()) ?? [])
@@ -37,8 +38,11 @@ public struct SyncEngine: Sendable {
 
         for conn in connections {
             do {
-                newTxns += try await syncConnection(conn, rules: rules, now: now)
+                let result = try await syncConnection(conn, rules: rules, holdNew: holdNew, now: now)
+                newTxns += result.newTransactions
+                held += result.heldAccounts
                 try store.updateConnectionStatus(id: conn.id, status: "ok", lastError: nil, lastSyncedAt: now)
+                try store.clearResync(connectionId: conn.id)
                 succeeded += 1
             } catch {
                 // One failing connection never blocks the others.
@@ -49,37 +53,57 @@ public struct SyncEngine: Sendable {
         }
         // Best-effort transfer pairing across all accounts after upserts.
         _ = try? Transfers.detect(store: store, now: now, transferCategoryId: "transfer")
-        return SyncOutcome(connectionsSucceeded: succeeded, connectionsFailed: failed, newTransactions: newTxns)
+        return SyncOutcome(connectionsSucceeded: succeeded, connectionsFailed: failed, newTransactions: newTxns,
+                           heldAccounts: held)
     }
 
-    private func syncConnection(_ conn: ConnectionRecord, rules: [Rule], now: UnixTime) async throws -> Int {
+    /// The fetch window's start: the last sync minus the overlap (or the full
+    /// backfill on a first sync), reaching further back when a resumed or
+    /// restored account is waiting to catch up — never past the backfill.
+    static func windowStart(lastSyncedAt: UnixTime?, resyncFrom: UnixTime?, now: UnixTime) -> UnixTime {
+        let floor = now - defaultBackfill
+        let normal = lastSyncedAt.map { $0 - overlap } ?? floor
+        guard let resyncFrom else { return normal }
+        return max(floor, min(normal, resyncFrom))
+    }
+
+    private func syncConnection(_ conn: ConnectionRecord, rules: [Rule], holdNew: Bool,
+                                now: UnixTime) async throws -> (newTransactions: Int, heldAccounts: Int) {
         guard let accessString = try secrets.read(ref: conn.keychainRef),
               let accessURL = URL(string: accessString) else {
             throw TTMError.simplefin("missing access URL")
         }
 
-        let start = (conn.lastSyncedAt.map { $0 - Self.overlap }) ?? (now - Self.defaultBackfill)
+        let start = Self.windowStart(lastSyncedAt: conn.lastSyncedAt,
+                                     resyncFrom: try store.earliestResync(connectionId: conn.id), now: now)
         let set = try await client.fetchAccounts(accessURL: accessURL, start: start, end: now, pending: true)
+        // A connection's first sync takes everything; later arrivals may be held.
+        let holdArrivals = holdNew && conn.lastSyncedAt != nil
 
-        var newCount = 0
+        var newCount = 0, held = 0
         for sf in set.accounts {
+            let existing = try store.findAccount(connectionId: conn.id, sfinAccountId: sf.id)
             // A deleted account stays as an archived tombstone so it isn't
-            // re-imported while the bridge still shares it (ACCOUNT_MANAGEMENT_PLAN D3).
-            if try store.findAccount(connectionId: conn.id, sfinAccountId: sf.id)?.archived == true { continue }
-            let account = try upsertAccount(conn: conn, sf: sf, now: now)
+            // re-imported while the bridge still shares it (ACCOUNT_MANAGEMENT_PLAN
+            // D3); a paused one keeps its last balance untouched (ADR-0025).
+            if existing?.archived == true || existing?.status == AccountStatus.paused.rawValue { continue }
+            let account = try upsertAccount(conn: conn, existing: existing, sf: sf,
+                                            status: holdArrivals ? .excluded : .active, now: now)
+            if existing == nil && holdArrivals { held += 1 }
             try snapshot(account: account, sf: sf, now: now)
             for tx in sf.transactions ?? [] {
                 if try upsertTransaction(account: account, tx: tx, rules: rules, now: now) { newCount += 1 }
             }
         }
-        return newCount
+        return (newCount, held)
     }
 
-    private func upsertAccount(conn: ConnectionRecord, sf: SFAccount, now: UnixTime) throws -> AccountRecord {
+    private func upsertAccount(conn: ConnectionRecord, existing: AccountRecord?, sf: SFAccount,
+                               status: AccountStatus, now: UnixTime) throws -> AccountRecord {
         let balance = sf.balanceCents?.cents ?? 0
         let available = sf.availableCents?.cents
 
-        if var existing = try store.findAccount(connectionId: conn.id, sfinAccountId: sf.id) {
+        if var existing {
             existing.name = sf.name
             existing.currency = sf.currency
             existing.balanceCents = balance
@@ -103,7 +127,8 @@ public struct SyncEngine: Sendable {
             availableCents: available,
             balanceDate: sf.balanceDate,
             archived: false,
-            createdAt: now
+            createdAt: now,
+            status: status.rawValue
         )
         try store.saveAccount(record)
         return record

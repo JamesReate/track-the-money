@@ -115,13 +115,15 @@ CREATE TABLE accounts (
   currency           TEXT NOT NULL DEFAULT 'USD',
   class              TEXT NOT NULL DEFAULT 'unclassified',
                      -- liquid | investment | secured_debt | unsecured_debt
-                     -- | real_estate | income | excluded | unclassified
+                     -- | real_estate | income | unclassified
+                     -- (+ credit_card; "excluded" moved to status in v5, ADR-0025)
   subclass           TEXT,
   apr_bps            INTEGER,                  -- optional APR in basis points
   balance_cents      INTEGER NOT NULL DEFAULT 0,
   available_cents    INTEGER,
   balance_date       INTEGER,
-  archived           INTEGER NOT NULL DEFAULT 0,
+  archived           INTEGER NOT NULL DEFAULT 0,  -- deleted by the user (ADR-0024)
+  -- v5: status TEXT ('active' | 'excluded' | 'paused'), resync_from INTEGER (ADR-0025)
   created_at         INTEGER NOT NULL,
   UNIQUE (connection_id, sfin_account_id)
 ) STRICT;

@@ -16,7 +16,23 @@ struct AccountsView: View {
         NavigationStack {
             List {
                 Section {
-                    ForEach(model.accounts) { account in row(account) }
+                    ForEach(accounts(.active)) { account in row(account) }
+                }
+                if !accounts(.paused).isEmpty {
+                    Section {
+                        ForEach(accounts(.paused)) { account in row(account) }
+                    } header: { Eyebrow("Paused") }
+                    footer: {
+                        Text("Not syncing. Each still counts at its last balance. Resuming catches up from where it stopped.")
+                    }
+                }
+                if !accounts(.excluded).isEmpty {
+                    Section {
+                        ForEach(accounts(.excluded)) { account in row(account) }
+                    } header: { Eyebrow("Excluded from totals") }
+                    footer: {
+                        Text("Still syncing, but left out of net worth, the charts, spending and interest, and their transactions are hidden everywhere. Include one again to bring it all back.")
+                    }
                 }
                 if !model.deletedAccounts.isEmpty {
                     Section {
@@ -31,7 +47,7 @@ struct AccountsView: View {
                         }
                     } header: { Eyebrow("Deleted bank accounts") }
                     footer: {
-                        Text("Still shared by SimpleFIN Bridge, so they’re kept hidden instead of syncing back. “Sync again” resumes from the next sync, without older history. To stop sharing one, remove it in SimpleFIN Bridge.")
+                        Text("Still shared by SimpleFIN Bridge, so they’re kept hidden instead of syncing back. “Sync again” brings one back with its recent history on the next sync. To stop sharing one, remove it in SimpleFIN Bridge.")
                     }
                 }
             }
@@ -87,19 +103,26 @@ struct AccountsView: View {
                         }
                         .foregroundStyle(Brand.slate)
                     }
-                    if account.accountClass.isDebt, let apr = account.aprBps {
+                    if let promo = account.activePromo {
+                        Text("\(APR.format(promo.aprBps)) until \(APR.day(promo.endsOn))")
+                            .font(.caption2.weight(.semibold)).foregroundStyle(Brand.brass)
+                    } else if account.accountClass.isDebt, let apr = account.aprBps {
                         Text("\(APR.format(apr)) APR").font(.caption2.weight(.semibold)).foregroundStyle(Brand.clay)
                     }
-                    if account.source == .manual {
+                    if account.status == .paused {
+                        Text(pausedLabel(account)).font(.caption2).foregroundStyle(Brand.slate)
+                    } else if account.source == .manual {
                         Text(updatedLabel(account)).font(.caption2).foregroundStyle(Brand.slate)
                     }
                 }
             }
             Spacer()
             MoneyText(account.balance, size: 17,
-                      color: account.accountClass.contribution == .liability ? Brand.clay : Brand.evergreen,
+                      color: account.status == .excluded ? Brand.slate
+                        : account.accountClass.contribution == .liability ? Brand.clay : Brand.evergreen,
                       currency: account.currency)
         }
+        .opacity(account.status == .excluded ? 0.7 : 1)
         .padding(.vertical, 4)
         .listRowBackground(Brand.surface)
         .contentShape(Rectangle())
@@ -119,6 +142,8 @@ struct AccountsView: View {
         }
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) { deleting = account } label: { Label("Delete", systemImage: "trash") }
+            excludeButton(account).tint(Brand.slate)
+            if account.source == .synced { pauseButton(account).tint(Brand.brass) }
         }
         .contextMenu {
             if account.source == .manual {
@@ -128,8 +153,45 @@ struct AccountsView: View {
                 Button { settingRate = account } label: { Label("Interest rate…", systemImage: "percent") }
             }
             Button { renaming = account } label: { Label("Rename…", systemImage: "pencil") }
+            Divider()
+            excludeButton(account)
+            if account.source == .synced { pauseButton(account) }
+            Divider()
             Button(role: .destructive) { deleting = account } label: { Label("Delete…", systemImage: "trash") }
         }
+    }
+
+    private func accounts(_ status: AccountStatus) -> [AccountSummary] {
+        model.accounts.filter { $0.status == status }
+    }
+
+    @ViewBuilder private func excludeButton(_ account: AccountSummary) -> some View {
+        if account.status == .excluded {
+            Button { Task { await model.setStatus(account, to: .active) } } label: {
+                Label("Include in totals", systemImage: "plus.circle")
+            }
+        } else {
+            Button { Task { await model.setStatus(account, to: .excluded) } } label: {
+                Label("Exclude from totals", systemImage: "minus.circle")
+            }
+        }
+    }
+
+    @ViewBuilder private func pauseButton(_ account: AccountSummary) -> some View {
+        if account.status == .paused {
+            Button { Task { await model.setStatus(account, to: .active) } } label: {
+                Label("Resume syncing", systemImage: "play.circle")
+            }
+        } else {
+            Button { Task { await model.setStatus(account, to: .paused) } } label: {
+                Label("Pause syncing", systemImage: "pause.circle")
+            }
+        }
+    }
+
+    private func pausedLabel(_ account: AccountSummary) -> String {
+        guard let t = account.balanceDate else { return "Paused" }
+        return "Paused · \(Time.date(t).formatted(date: .abbreviated, time: .omitted))"
     }
 
     private var deletingBinding: Binding<Bool> {
@@ -180,7 +242,6 @@ extension AccountClass {
         case .unsecuredDebt: return "Unsecured debt"
         case .realEstate: return "Real estate"
         case .income: return "Income"
-        case .excluded: return "Excluded"
         case .unclassified: return "Unclassified"
         }
     }
@@ -215,6 +276,19 @@ enum APR {
         NSDecimalRound(&rounded, &value, 0, .bankers)
         return NSDecimalNumber(decimal: rounded).intValue
     }
+
+    /// A promo end day ("Mar 1, 2027"); `endsOn` is the start of a local day.
+    static func day(_ t: UnixTime) -> String {
+        Time.date(t).formatted(date: .abbreviated, time: .omitted)
+    }
+}
+
+extension AccountSummary {
+    /// The credit-card promo that applies right now, if any.
+    var activePromo: PromoRate? {
+        guard let promo, promo.isActive(at: Time.unix(Date())) else { return nil }
+        return promo
+    }
 }
 
 /// Set the current interest rate on a debt account. Sync never reports rates,
@@ -224,7 +298,21 @@ struct InterestRateSheet: View {
     let account: AccountSummary
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
+    @State private var hasPromo = false
+    @State private var promoText = "0"
+    @State private var promoEnds = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
     @State private var error: String?
+
+    private var isCard: Bool { account.accountClass == .creditCard }
+    private var regularEmpty: Bool { text.trimmingCharacters(in: .whitespaces).isEmpty }
+    /// A card may leave the regular rate blank while setting a promo, or while
+    /// removing the one it has (otherwise a promo-only card could never drop
+    /// its promo). Anything else needs a rate.
+    private var canSave: Bool {
+        let regularOK = regularEmpty ? (isCard && (hasPromo || account.promo != nil)) : APR.bps(fromPercent: text) != nil
+        let promoOK = !hasPromo || APR.bps(fromPercent: promoText) != nil
+        return regularOK && promoOK
+    }
 
     var body: some View {
         NavigationStack {
@@ -238,10 +326,16 @@ struct InterestRateSheet: View {
                             .accessibilityIdentifier("aprField")
                         Text("% APR").foregroundStyle(Brand.slate)
                     }
-                } header: { Eyebrow("Interest rate") }
+                } header: { Eyebrow(isCard ? "Regular rate" : "Interest rate") }
                 footer: { Text("The rate on your latest statement. Update it when it changes.") }
+                if isCard { promotion }
                 if account.aprBps != nil {
-                    Button("Remove rate", role: .destructive) { save(nil) }
+                    Button("Remove regular rate", role: .destructive) {
+                        Task {
+                            error = await model.setAPR(accountId: account.id, aprBps: nil)
+                            if error == nil { dismiss() }
+                        }
+                    }
                 }
                 if let error {
                     Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(Brand.clay)
@@ -252,21 +346,60 @@ struct InterestRateSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save(APR.bps(fromPercent: text)) }
-                        .disabled(APR.bps(fromPercent: text) == nil)
+                    Button("Save") { save() }
+                        .disabled(!canSave)
                         .accessibilityIdentifier("aprSave")
                 }
             }
             .onAppear {
                 // Decimal's description is locale-independent ("22.99"), matching the parser.
                 if let bps = account.aprBps { text = "\(Decimal(bps) / 100)" }
+                if let promo = account.activePromo {
+                    hasPromo = true
+                    promoText = "\(Decimal(promo.aprBps) / 100)"
+                    promoEnds = Time.date(promo.endsOn)
+                }
             }
         }
     }
 
-    private func save(_ bps: Int?) {
+    @ViewBuilder private var promotion: some View {
+        Section {
+            Toggle("Promotional rate", isOn: $hasPromo)
+                .tint(Brand.evergreen)
+                .accessibilityIdentifier("promoToggle")
+            if hasPromo {
+                HStack {
+                    TextField("e.g. 0", text: $promoText)
+                        #if os(iOS)
+                        .keyboardType(.decimalPad)
+                        #endif
+                        .accessibilityIdentifier("promoField")
+                    Text("% APR").foregroundStyle(Brand.slate)
+                }
+                DatePicker("Ends", selection: $promoEnds, in: Calendar.current.startOfDay(for: Date())...,
+                           displayedComponents: .date)
+                    .accessibilityIdentifier("promoEnds")
+            }
+        } header: { Eyebrow("Promotion") }
+        footer: {
+            if let ended = account.promo, account.activePromo == nil {
+                Text("The last promo (\(APR.format(ended.aprBps))) ended \(APR.day(ended.endsOn)). The regular rate applies now.")
+            } else {
+                Text("An intro or balance-transfer rate. It applies through the end date, then the regular rate takes over. Debt & Interest shows whether your cash can pay it off in time.")
+            }
+        }
+    }
+
+    private func save() {
         Task {
-            error = await model.setAPR(accountId: account.id, aprBps: bps)
+            let regular = regularEmpty ? nil : APR.bps(fromPercent: text)
+            error = await model.setAPR(accountId: account.id, aprBps: regular)
+            if error == nil, isCard {
+                error = await model.setPromo(accountId: account.id,
+                                             aprBps: hasPromo ? APR.bps(fromPercent: promoText) : nil,
+                                             endsOn: hasPromo ? promoEnds : nil)
+            }
             if error == nil { dismiss() }
         }
     }
