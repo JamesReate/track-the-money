@@ -33,12 +33,32 @@ struct ConnectionSection: View {
                 // A vertical-axis TextField exposes its placeholder as
                 // placeholderValue, not a label — UI tests need a handle.
                 .accessibilityIdentifier("setupToken")
-            Button(model.connections.isEmpty ? "Add connection" : "Add another connection") {
+            Button {
                 let token = setupToken
-                setupToken = ""
-                Task { await model.claim(token: token) }
+                Task {
+                    // Keep the token on failure so a typo'd paste can be fixed.
+                    if await model.claim(token: token) { setupToken = "" }
+                }
+            } label: {
+                HStack {
+                    Text(model.connections.isEmpty ? "Add connection" : "Add another connection")
+                    if model.isClaiming {
+                        Spacer()
+                        ProgressView().controlSize(.small)
+                        Text(model.isSyncing ? "Syncing…" : "Connecting…")
+                            .font(.caption).foregroundStyle(Brand.slate)
+                    }
+                }
             }
-            .disabled(setupToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isSyncing)
+            .disabled(setupToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                      || model.isSyncing || model.isClaiming)
+
+            if let message = model.connectionMessage {
+                Label(message.text, systemImage: message.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                    .font(.callout)
+                    .foregroundStyle(message.isError ? Brand.clay : Brand.evergreen)
+                    .accessibilityIdentifier("connectionMessage")
+            }
 
             if model.hasSyncableConnection {
                 Button {
@@ -49,7 +69,7 @@ struct ConnectionSection: View {
                         if model.isSyncing { Spacer(); ProgressView() }
                     }
                 }
-                .disabled(model.isSyncing)
+                .disabled(model.isSyncing || model.isClaiming)
             }
             Text("The connection is stored in this device’s Keychain, never in your data or backups. Your data stays on this device — we can’t see it.")
                 .font(.caption).foregroundStyle(Brand.slate)

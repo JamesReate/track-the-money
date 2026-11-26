@@ -45,3 +45,18 @@ public enum TTMError: Error, Equatable {
     case crypto(String)
     case invalidOperation(String)
 }
+
+extension TTMError: LocalizedError {
+    /// User-facing text. `.simplefin` messages are written for the user where
+    /// they're raised; the rest are developer-grade but readable.
+    public var errorDescription: String? {
+        switch self {
+        case .simplefin(let m):        return m
+        case .decoding(let m):         return "Couldn’t read SimpleFIN’s response (\(m))."
+        case .network(let m):          return "Network error (\(m))."
+        case .notFound:                return "Not found."
+        case .crypto(let m):           return "Keychain error (\(m))."
+        case .invalidOperation(let m): return m
+        }
+    }
+}

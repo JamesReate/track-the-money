@@ -63,6 +63,16 @@ public final class AppModel {
     public var connections: [ConnectionSummary] = []
     /// A switch or profile creation is in flight — disables further switching.
     public var isSwitchingProfile = false
+    /// A setup token is being claimed (and then synced).
+    public var isClaiming = false
+    /// Outcome of the last add/reconnect, shown under the token field.
+    public var connectionMessage: ConnectionMessage?
+    private var lastSyncFailed = false
+
+    public struct ConnectionMessage: Equatable, Sendable {
+        public let text: String
+        public let isError: Bool
+    }
 
     /// What a new profile starts with.
     public enum ProfileSeed: String, CaseIterable, Identifiable, Sendable {
@@ -379,10 +389,17 @@ public final class AppModel {
         defer { isSyncing = false }
         do {
             let outcome = try await core.syncNow()
-            statusMessage = "Synced: +\(outcome.newTransactions) new · \(outcome.connectionsFailed) failed"
+            lastSyncFailed = outcome.connectionsFailed > 0
             await refresh()
+            if lastSyncFailed {
+                let detail = connections.compactMap(\.lastError).first.map { " (\($0))" } ?? ""
+                statusMessage = "Sync finished with \(outcome.connectionsFailed) connection error\(outcome.connectionsFailed == 1 ? "" : "s")\(detail)."
+            } else {
+                statusMessage = "Synced — \(outcome.newTransactions) new transaction\(outcome.newTransactions == 1 ? "" : "s")."
+            }
         } catch {
-            statusMessage = "Sync failed: \(error)"
+            lastSyncFailed = true
+            statusMessage = "Sync failed: \(Self.message(error))"
         }
     }
 
@@ -391,27 +408,42 @@ public final class AppModel {
         catch { statusMessage = "Sample load failed: \(error)" }
     }
 
-    public func claim(token: String) async {
+    /// Claim a setup token, then sync. Progress and the outcome are reported
+    /// inline next to the token field (`isClaiming`, `connectionMessage`), not
+    /// only in the Status line at the top of Settings. Returns whether the
+    /// connection was added, so the field keeps the token on failure.
+    @discardableResult
+    public func claim(token: String) async -> Bool {
+        isClaiming = true
+        connectionMessage = nil
+        defer { isClaiming = false }
         do {
             try await core.claimSetupToken(token)
-            statusMessage = "Connection added"
-            await syncNow()
         } catch {
-            statusMessage = "Claim failed: \(error)"
-            connections = (try? await core.connections()) ?? connections
+            connectionMessage = ConnectionMessage(text: Self.message(error), isError: true)
+            statusMessage = "Couldn’t add the connection: \(Self.message(error))"
+            return false
         }
+        await syncNow()
+        connectionMessage = ConnectionMessage(text: statusMessage, isError: lastSyncFailed)
+        return true
     }
 
     /// Re-link an existing connection with a fresh setup token, keeping its
     /// accounts and history (PROFILES_PLAN §4.7).
     public func reconnect(connectionId: String, token: String) async {
+        isClaiming = true
+        connectionMessage = nil
+        defer { isClaiming = false }
         do {
             try await core.reconnect(connectionId: connectionId, setupToken: token)
-            statusMessage = "Connection re-linked"
-            await syncNow()
         } catch {
-            statusMessage = "Reconnect failed: \(error)"
+            connectionMessage = ConnectionMessage(text: Self.message(error), isError: true)
+            statusMessage = "Couldn’t reconnect: \(Self.message(error))"
+            return
         }
+        await syncNow()
+        connectionMessage = ConnectionMessage(text: "Re-linked. " + statusMessage, isError: lastSyncFailed)
     }
 
     /// Connections sync can actually reach (sample rows have no credential).
@@ -490,6 +522,7 @@ public final class AppModel {
 
     /// Search text, filters and highlights belong to the profile being left.
     private func resetPerProfileViewState() {
+        connectionMessage = nil
         txnSearch = ""
         txnFilter = .all
         lastCategorized = nil

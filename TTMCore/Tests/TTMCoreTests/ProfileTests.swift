@@ -300,4 +300,42 @@ final class ProfileTests: XCTestCase {
         do { _ = try await core.profiles(); XCTFail("fixed-path store reported profiles") }
         catch let error as ProfileError { XCTAssertEqual(error, .unavailable) }
     }
+
+    // MARK: Setup-token parsing
+
+    func testSetupTokenSurvivesCopyPasteDamage() {
+        let url = "https://bridge.test/simplefin/claim/abc1234"
+        let padded = Data(url.utf8).base64EncodedString()
+        XCTAssertTrue(padded.hasSuffix("="), "fixture should exercise padding")
+        let expected = URL(string: url)
+
+        XCTAssertEqual(LocalCore.claimURL(fromSetupToken: padded), expected)
+        XCTAssertEqual(LocalCore.claimURL(fromSetupToken: "  \(padded)\n"), expected, "surrounding whitespace")
+        let wrapped = String(padded.prefix(10)) + "\n" + String(padded.dropFirst(10))
+        XCTAssertEqual(LocalCore.claimURL(fromSetupToken: wrapped), expected, "line break inside the token")
+        XCTAssertEqual(LocalCore.claimURL(fromSetupToken: padded.replacingOccurrences(of: "=", with: "")),
+                       expected, "missing padding")
+        XCTAssertEqual(LocalCore.claimURL(fromSetupToken: SimpleFINDemo.setupToken),
+                       URL(string: "https://beta-bridge.simplefin.org/simplefin/claim/DEMO"))
+
+        XCTAssertNil(LocalCore.claimURL(fromSetupToken: "hello world"))
+        XCTAssertNil(LocalCore.claimURL(fromSetupToken: Data("not a url".utf8).base64EncodedString()))
+        XCTAssertNil(LocalCore.claimURL(fromSetupToken: Data("ftp://x.test/claim".utf8).base64EncodedString()))
+    }
+
+    func testAlreadyClaimedTokenGetsAPlainMessage() async throws {
+        struct Refusing: NetworkClient {
+            func get(url: URL, basicAuth: BasicAuth?) async throws -> Data { Data() }
+            func postJSON(url: URL, body: Data, bearer: String?) async throws -> Data { throw TTMError.network("HTTP 403") }
+        }
+        let core = try LocalCore(profilesRoot: root, secrets: secrets, network: Refusing(), clock: C())
+        do {
+            try await core.claimSetupToken(Self.token)
+            XCTFail("claim succeeded against a 403")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("already been used"), "\(error.localizedDescription)")
+        }
+        let conns = try await core.connections()
+        XCTAssertTrue(conns.isEmpty, "a failed claim left a connection behind")
+    }
 }

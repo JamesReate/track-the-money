@@ -161,18 +161,39 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
     /// SimpleFIN: base64-decode the setup token to a claim URL, POST to it,
     /// receive the long-lived Access URL. The caller puts it in the SecretStore.
     private func claimAccessURL(_ token: String) async throws -> String {
-        guard let data = Data(base64Encoded: token.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let claimURLString = String(data: data, encoding: .utf8),
-              let claimURL = URL(string: claimURLString.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            throw TTMError.simplefin("invalid setup token")
+        guard let claimURL = Self.claimURL(fromSetupToken: token) else {
+            throw TTMError.simplefin("That doesn’t look like a SimpleFIN setup token. Copy the whole token from SimpleFIN Bridge and try again.")
         }
 
-        let responseData = try await network.postJSON(url: claimURL, body: Data(), bearer: nil)
+        let responseData: Data
+        do {
+            responseData = try await network.postJSON(url: claimURL, body: Data(), bearer: nil)
+        } catch TTMError.network("HTTP 403") {
+            // The bridge answers 403 to a token that was already claimed.
+            throw TTMError.simplefin("This setup token has already been used. Setup tokens work only once — create a new one in SimpleFIN Bridge.")
+        }
         guard let accessURL = String(data: responseData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !accessURL.isEmpty else {
-            throw TTMError.simplefin("claim returned no access URL")
+            .trimmingCharacters(in: .whitespacesAndNewlines), !accessURL.isEmpty,
+              URL(string: accessURL) != nil else {
+            throw TTMError.simplefin("SimpleFIN didn’t return a connection for this token.")
         }
         return accessURL
+    }
+
+    /// Decode a setup token to its claim URL, tolerating what copy/paste does
+    /// to it: surrounding or embedded whitespace and line breaks, missing `=`
+    /// padding, and the URL-safe base64 alphabet.
+    static func claimURL(fromSetupToken token: String) -> URL? {
+        var b64 = token.filter { !$0.isWhitespace }
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        if b64.count % 4 != 0 { b64 += String(repeating: "=", count: 4 - b64.count % 4) }
+        guard let data = Data(base64Encoded: b64),
+              let string = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let url = URL(string: string),
+              let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
+              url.host != nil else { return nil }
+        return url
     }
 
     public func syncNow() async throws -> SyncOutcome {

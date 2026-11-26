@@ -103,4 +103,23 @@ final class ProfilesUITests: XCTestCase {
         // The previous profile is still there to switch back to.
         XCTAssertTrue(profileRow("My data", in: app).exists)
     }
+
+    /// A bad token must say why, right where it was pasted, and keep the text.
+    func testBadSetupTokenShowsInlineErrorAndKeepsToken() {
+        let app = launch()
+        let field = app.textFields["setupToken"]
+        XCTAssertTrue(reveal(field, in: app), "token field missing")
+        field.tap()
+        field.typeText("not-a-token")
+        let add = app.buttons["Add connection"]
+        XCTAssertTrue(reveal(add, in: app))
+        add.tap()
+
+        // The Label's icon and text both carry the identifier; match the text.
+        let message = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "doesn’t look like a SimpleFIN setup token")).firstMatch
+        XCTAssertTrue(message.waitForExistence(timeout: 10) || reveal(message, in: app),
+                      "no inline error after Add connection with a bad token")
+        XCTAssertEqual(field.value as? String, "not-a-token", "failed claim cleared the pasted token")
+    }
 }
