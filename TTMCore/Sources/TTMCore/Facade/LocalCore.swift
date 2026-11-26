@@ -608,6 +608,44 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
                                   interest: interest.cents, escrow: escrow.cents, now: clock.now())
     }
 
+    public func expectedExpenses(current: MonthSpan, previous: [MonthSpan]) async throws -> ExpectedMonth {
+        let settings = try await expectedExpenseSettings()
+        let lookback = previous.prefix(settings.lookbackMonths)
+        let from = lookback.map(\.start).min() ?? current.start
+        return ExpectedExpenses.compute(charges: try store.recurringCharges(from: from, to: current.end),
+                                        current: current, previous: previous, now: clock.now(),
+                                        settings: settings, dismissed: try store.expectedDismissals())
+    }
+
+    public func expectedExpenseSettings() async throws -> ExpectedExpenseSettings {
+        var settings = ExpectedExpenseSettings.standard
+        if let cents = try store.setting(Store.expectedMinimumKey).flatMap(Int64.init), cents > 0 {
+            settings.minimum = Money(cents: cents)
+        }
+        if let months = try store.setting(Store.expectedLookbackKey).flatMap(Int.init),
+           ExpectedExpenseSettings.lookbackChoices.contains(months) {
+            settings.lookbackMonths = months
+        }
+        return settings
+    }
+
+    public func setExpectedExpenseSettings(_ settings: ExpectedExpenseSettings) async throws {
+        guard settings.minimum.cents > 0, ExpectedExpenseSettings.lookbackChoices.contains(settings.lookbackMonths) else {
+            throw TTMError.invalidOperation("Pick a minimum above $0 and a lookback of 2 or 3 months.")
+        }
+        try store.setSetting(Store.expectedMinimumKey, String(settings.minimum.cents))
+        try store.setSetting(Store.expectedLookbackKey, String(settings.lookbackMonths))
+    }
+
+    public func dismissExpectedExpense(key: String, name: String) async throws {
+        guard !key.isEmpty else { throw TTMError.invalidOperation("Nothing to remove.") }
+        try store.dismissExpected(key: key, name: name, now: clock.now())
+    }
+
+    public func restoreExpectedExpense(key: String) async throws {
+        try store.restoreExpected(key: key)
+    }
+
     public func interestSummary(from: UnixTime, to: UnixTime) async throws -> InterestRollup {
         let rows = try store.interestByAccount(categoryId: DefaultData.interestCategoryId, from: from, to: to)
         let lines = rows.map { InterestLine(accountId: $0.accountId, accountName: $0.name, interest: Money(cents: $0.cents)) }

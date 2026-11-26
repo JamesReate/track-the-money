@@ -87,8 +87,8 @@ final class CategorizeUITests: XCTestCase {
                       "list did not filter — 'Utilities' still present (type-ahead broken)")
     }
 
-    /// Adding a subcategory to a leaf that has transactions ("Auto" holds one in
-    /// the sample data) must run the real detect→prompt path and offer to move
+    /// Adding a subcategory to a leaf that has transactions ("Auto" holds several
+    /// in the sample data) must run the real detect→prompt path and offer to move
     /// those transactions. The `-debugPromote` hook fires that path on Auto so the
     /// test needn't scroll a deep List (which the More-tab nav wrapper resists).
     func testGracefulPromotionPrompt() {
@@ -98,7 +98,7 @@ final class CategorizeUITests: XCTestCase {
 
         // Detection produced the prompt → the move action is on screen.
         // (confirmationDialog buttons don't expose accessibilityIdentifier, so match by label.)
-        let move = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Move 1 to'")).firstMatch
+        let move = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Move ' AND label CONTAINS ' to '")).firstMatch
         XCTAssertTrue(move.waitForExistence(timeout: 12), "promotion prompt did not appear")
         move.tap()
         XCTAssertTrue(move.waitForNonExistence(timeout: 5), "prompt did not dismiss after Move (action didn't fire)")

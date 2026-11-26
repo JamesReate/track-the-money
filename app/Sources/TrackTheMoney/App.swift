@@ -53,6 +53,8 @@ struct RootView: View {
                 .tabItem { Label("Transactions", systemImage: "list.bullet") }.tag("transactions")
             SpendingView(model: model)
                 .tabItem { Label("Spending", systemImage: "chart.bar") }.tag("spending")
+            ThisMonthView(model: model)
+                .tabItem { Label("This Month", systemImage: "calendar") }.tag("month")
             CategoriesView(model: model)
                 .tabItem { Label("Categories", systemImage: "tag") }.tag("categories")
             RulesView(model: model)

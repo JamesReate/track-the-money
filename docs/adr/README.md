@@ -62,6 +62,7 @@ New record: copy [`TEMPLATE.md`](TEMPLATE.md), take the next number, add a row h
 | [0024](0024-manual-accounts-and-account-deletion.md) | Manual accounts under a hidden local connection; deleted synced accounts become tombstones; credit-card class; user-entered APR | Accepted |
 | [0025](0025-account-status-excluded-and-paused.md) | Whether an account counts or syncs is a status (active / excluded / paused), separate from its class; catch-up windows; hold new accounts | Accepted |
 | [0026](0026-credit-card-promo-apr.md) | Credit-card promo rates are user-entered with a last day; payoff risk applies cash to the earliest deadline first | Accepted |
+| [0027](0027-expected-expenses.md) | Expected expenses are detected from recent history, deterministically, and removed per merchant | Accepted |
 
 ## Known open questions
 

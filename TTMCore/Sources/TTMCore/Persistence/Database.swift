@@ -243,6 +243,18 @@ public final class Database: @unchecked Sendable {
             """)
         }
 
+        register("v7_expected_expense_dismissals") { db in
+            // Merchants the user removed from expected expenses (ADR-0027),
+            // keyed by MerchantKey. `name` is what to show in "Removed".
+            try db.execute(sql: """
+            CREATE TABLE expected_expense_dismissals (
+              merchant_key TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              dismissed_at INTEGER NOT NULL
+            ) STRICT;
+            """)
+        }
+
         // ai_suggestions lands in a later migration with the AI (paid) feature.
         return migrator
     }

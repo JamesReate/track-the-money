@@ -514,6 +514,67 @@ public struct Store: Sendable {
         try queue.read { try CategoryRecord.fetchCount($0) }
     }
 
+    // MARK: Expected expenses (ADR-0027)
+
+    public static let expectedMinimumKey = "expected_min_cents"
+    public static let expectedLookbackKey = "expected_lookback_months"
+
+    private struct ChargeRow: FetchableRecord, Decodable {
+        var id: String
+        var label: String
+        var cents: Int64
+        var at: Int64
+        var account: String
+        var categoryId: String?
+    }
+
+    /// Money out in [from, to) on counting accounts, as positive amounts:
+    /// no transfers, nothing categorized as income or transfer. Pending
+    /// charges are dated by when they happened.
+    public func recurringCharges(from: Int64, to: Int64) throws -> [RecurringCharge] {
+        try queue.read { db in
+            try ChargeRow.fetchAll(db, sql: """
+                SELECT t.id AS id,
+                       COALESCE(NULLIF(t.payee, ''), t.description) AS label,
+                       -t.amount_cents AS cents,
+                       COALESCE(t.posted_at, t.transacted_at) AS at,
+                       COALESCE(a.nickname, a.name) AS account,
+                       t.category_id AS categoryId
+                FROM transactions t
+                JOIN accounts a ON a.id = t.account_id
+                LEFT JOIN categories c ON c.id = t.category_id
+                WHERE \(Self.visibleTxn) AND a.archived = 0
+                  AND t.amount_cents < 0 AND t.is_transfer = 0
+                  AND (c.kind IS NULL OR c.kind NOT IN ('income', 'transfer'))
+                  AND COALESCE(t.posted_at, t.transacted_at) >= ?
+                  AND COALESCE(t.posted_at, t.transacted_at) < ?
+                """, arguments: [from, to])
+        }.map {
+            RecurringCharge(transactionId: $0.id, label: $0.label, amount: Money(cents: $0.cents), at: $0.at,
+                            accountName: $0.account, categoryId: $0.categoryId)
+        }
+    }
+
+    public func expectedDismissals() throws -> [DismissedExpense] {
+        try queue.read { db in
+            try Row.fetchAll(db, sql: "SELECT merchant_key, name, dismissed_at FROM expected_expense_dismissals")
+                .map { DismissedExpense(key: $0["merchant_key"], name: $0["name"], dismissedAt: $0["dismissed_at"]) }
+        }
+    }
+
+    public func dismissExpected(key: String, name: String, now: Int64) throws {
+        try queue.write { db in
+            try db.execute(sql: """
+                INSERT INTO expected_expense_dismissals (merchant_key, name, dismissed_at) VALUES (?, ?, ?)
+                ON CONFLICT(merchant_key) DO UPDATE SET name = excluded.name, dismissed_at = excluded.dismissed_at
+                """, arguments: [key, name, now])
+        }
+    }
+
+    public func restoreExpected(key: String) throws {
+        try queue.write { try $0.execute(sql: "DELETE FROM expected_expense_dismissals WHERE merchant_key = ?", arguments: [key]) }
+    }
+
     // MARK: Payment splits & interest
 
     /// One split per transaction: replace any existing.

@@ -296,6 +296,16 @@ public protocol CoreFacade: Sendable {
     // Spending
     func spending(from: UnixTime, to: UnixTime) async throws -> [SpendingLine]
 
+    // Expected expenses (docs/plans/EXPECTED_EXPENSES_PLAN.md, ADR-0027)
+    /// Big recurring bills for `current`, learned from `previous` complete
+    /// months (most recent first; the app sends local month boundaries).
+    func expectedExpenses(current: MonthSpan, previous: [MonthSpan]) async throws -> ExpectedMonth
+    func expectedExpenseSettings() async throws -> ExpectedExpenseSettings
+    func setExpectedExpenseSettings(_ settings: ExpectedExpenseSettings) async throws
+    /// Stop expecting a merchant (by `ExpectedExpense.key`) until restored.
+    func dismissExpectedExpense(key: String, name: String) async throws
+    func restoreExpectedExpense(key: String) async throws
+
     // Interest & debt cost
     func setPaymentSplit(transactionId: String, principal: Money, interest: Money, escrow: Money) async throws
     func interestSummary(from: UnixTime, to: UnixTime) async throws -> InterestRollup

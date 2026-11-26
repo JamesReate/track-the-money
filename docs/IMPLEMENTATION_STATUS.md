@@ -140,6 +140,17 @@ Swift 6.3 toolchain.
   payment to clear by the end date, and rough interest after. Pure math in
   `Interest/PromoPayoff.swift`. Next ideas (buffer, income-aware coverage, promo
   balance) in the plan's §5. **6 new engine tests** (`PromoAPRTests`) + 1 UI test.
+- ✅ **Expected expenses (2026-11-26)** — new **This Month** tab
+  (`docs/plans/EXPECTED_EXPENSES_PLAN.md`, ADR-0027). Big recurring bills
+  (≥ $150 by default, seen in 2 of the last 3 months, at most ~1 charge a month)
+  are expected on their usual day, knocked off when a charge from that merchant
+  lands (including up to 5 days early), and flagged "not in yet" 2 days after
+  their day. Totals: paid, still to come, all big bills this month. Remove an
+  item per merchant (swipe / right-click), restore it from "Removed"; minimum
+  and lookback in the toolbar menu. Pure engine in `Recurring/`; migration v7
+  stores removals. Sample data gained four monthly bills and a stopped one.
+  **20 new engine tests** (`ExpectedExpensesTests`) + 2 UI tests (iPhone).
+  Mac: builds; a hands-on visual pass is still to do.
 - ✅ **Mac pass (2026-11-26)** of excluded/paused/hold and promos, run by hand-held
   XCUITest against a real store (demo profile + a throwaway profile on SimpleFIN's
   demo bank). It found two Mac-only bugs, both fixed: Debt & Interest reused

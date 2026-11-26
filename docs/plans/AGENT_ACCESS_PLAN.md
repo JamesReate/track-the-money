@@ -1,7 +1,7 @@
 # Agent access: letting Claude (or any MCP client) query your data locally
 
 - **Status:** Planned (2026-11-26). Not started.
-- **Decided in:** nothing yet. Write ADR-0027 when implementation starts (§9).
+- **Decided in:** nothing yet. Write the next free ADR when implementation starts (§9).
 
 ## 1. Ask
 
@@ -271,7 +271,7 @@ the real control.
 Whatever the agent reads goes to its model provider as conversation context.
 This is the one real change to the local-first promise. The app itself still
 sends nothing, and an MCP client running a local model keeps everything on the
-machine. ADR-0027 records it.
+machine. The ADR in §9 records it.
 
 ### D7: MCP over standard input/output; the library is chosen at implementation
 
@@ -412,7 +412,7 @@ profile during development.
 
 ## 9. ADR to write when this starts
 
-**ADR-0027: Local agent access is read-only, opt-in per profile, and goes
+**ADR (next free number): Local agent access is read-only, opt-in per profile, and goes
 through curated views.**
 - It records D2–D6.
 - It amends the spirit of ADR-0001 by stating plainly that the data reaches

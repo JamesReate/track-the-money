@@ -22,6 +22,8 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
   - `Classify/` — `Categorizer` pipeline, `AccountClass`, `CategoryPalette`,
     `OnDeviceCategorizer` protocol (+ `NoOpOnDeviceCategorizer`).
   - `NetWorth/`, `Interest/` — pure rollup/series math.
+  - `Recurring/` — `MerchantKey` + `ExpectedExpenses` (pure detection of big
+    recurring bills for This Month).
   - `Facade/` — `CoreFacade` protocol, `LocalCore` implementation,
     `SampleData` (demo seed, `LocalCore.loadSampleData()`).
   - `Crypto/`, `SyncClient/` — Milestone 2 stubs.
@@ -32,7 +34,7 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
   (`KeychainSecretStore`, `URLSessionNetworkClient`,
   `FoundationModelsCategorizer`, `HeuristicOnDeviceCategorizer`).
 - `app/UITests/` — XCUITest target (`CategorizeUITests`, `BackupUITests`,
-  `ProfilesUITests`, `AccountsUITests`).
+  `ProfilesUITests`, `AccountsUITests`, `ExpectedExpensesUITests`).
 - `project.yml` — XcodeGen spec (source of truth for the Xcode project).
 - `docs/` — **all documentation lives here**; only `README.md` and `CLAUDE.md`
   stay at the repo root. `docs/IMPLEMENTATION_STATUS.md` (running status doc —
@@ -58,6 +60,8 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
     credit-card class, APR on debts, excluded/paused accounts; shipped.
   - `PROMO_APR_PLAN.md` — credit-card promo rates + payoff outlook; first cut
     shipped, §5 lists what to think about next.
+  - `EXPECTED_EXPENSES_PLAN.md` — This Month: big recurring bills expected,
+    knocked off as they arrive; first cut shipped, §5 is the road to budgets.
   - `AGENT_ACCESS_PLAN.md` — `ttm` CLI + local MCP server (read-only SQL over
     curated temp views, opt-in per profile); planned, not started.
 
@@ -97,7 +101,7 @@ anything; if it *is* wrong, write a superseding ADR rather than quietly breaking
 ## Build & test
 
 ```bash
-cd TTMCore && swift test                 # engine tests (95 + 2 opt-in live, XCTest)
+cd TTMCore && swift test                 # engine tests (115 + 2 opt-in live, XCTest)
 cd app && swift build                    # SwiftUI compiles headlessly (macOS host)
 cd app && swift run TrackTheMoney        # run the Mac app from CLI
 xcodegen generate                        # project.yml → TrackTheMoney.xcodeproj
@@ -115,7 +119,7 @@ xcodebuild test -scheme TrackTheMoney -only-testing:TrackTheMoneyUITests
   - `-profile <name>` — open that profile at launch, creating it (as `test`) if
     missing. Runs before `-sampleData`.
   - `-tab <name>` — select a tab; tags: `networth accounts transactions spending
-    categories rules realestate debt settings`.
+    month categories rules realestate debt settings`.
   - `-resetStore` — delete `Application Support/TrackTheMoney/` (every profile,
     `profiles.json`, any legacy `ttm.db`) before opening.
   - `-stubAI` — force `HeuristicOnDeviceCategorizer` (deterministic, for tests);
@@ -249,6 +253,22 @@ Per `docs/plans/ACCOUNT_MANAGEMENT_PLAN.md`, decided in ADR-0024 and ADR-0025:
   section (`DebtInterestView.keyed`). Don't round-trip fractional `Decimal`s
   through `NSDecimalNumber.intValue` (returns garbage); round first or use Int64.
 
+## Expected expenses (shipped)
+
+Per `docs/plans/EXPECTED_EXPENSES_PLAN.md`, decided in ADR-0027. The This Month
+tab (`ThisMonthView`, tag `month`):
+
+- `ExpectedExpenses.compute` is pure. The app passes local month boundaries
+  (`AppModel.expectedMonths`, current + 3 previous, most recent first); TTMCore
+  never builds a calendar.
+- Merchants group by `MerchantKey`. Removals are stored by that key
+  (`expected_expense_dismissals`, v7), so changing `MerchantKey`'s rules orphans
+  them — treat it as a data format.
+- Sample data includes monthly bills 30 days apart, so which are paid vs coming
+  up depends on today's date; UI tests must accept either section.
+- New user-facing account queries still filter excluded accounts —
+  `Store.recurringCharges` uses `visibleTxn`.
+
 ## Gotchas
 
 - Gitignored and regenerated: `*.xcodeproj/`, `Package.resolved`, `.build/`,
@@ -257,7 +277,7 @@ Per `docs/plans/ACCOUNT_MANAGEMENT_PLAN.md`, decided in ADR-0024 and ADR-0025:
   `didInsert(_:)`); `Database` is `@unchecked Sendable`.
 - Migrations are append-only: v1 schema, v2 FTS5 (+triggers), v3 account
   nickname, v4 uncategorized partial index, v5 account status + resync_from,
-  v6 promo APR. Category tree/color seeding is NOT a
+  v6 promo APR, v7 expected-expense dismissals. Category tree/color seeding is NOT a
   migration — `DefaultData.ensureCategories` reconciles idempotently at startup
   and must never clobber user edits.
 - SimpleFIN error payload key is `errors` (not `errlist`) — guarded by

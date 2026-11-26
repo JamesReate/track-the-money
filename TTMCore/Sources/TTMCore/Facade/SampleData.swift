@@ -89,6 +89,30 @@ extension Store {
                 isTransfer: false, transferGroupId: nil, extraJson: nil, createdAt: now, updatedAt: now))
         }
 
+        // Big monthly bills for This Month's expected expenses (ADR-0027):
+        // (sfinPrefix, payee, cents, daysAgo of the latest, category, payments).
+        // Payments are 30 days apart, so which are paid this month depends on
+        // today's date. The orthodontist stopped after two.
+        let bills: [(String, String, Int64, Int64, String, Int)] = [
+            ("mtg", "ROCKET MORTGAGE", -245_000, 10, "home", 4),
+            ("car", "TOYOTA FINANCIAL", -41_200, 18, "auto", 4),
+            ("ins", "STATE FARM INSURANCE", -18_600, 22, "auto", 4),
+            ("care", "BRIGHT HORIZONS", -165_000, 26, "kids", 4),
+            ("ortho", "SMILE ORTHODONTICS", -25_000, 42, "health", 2),
+        ]
+        for (prefix, payee, cents, latest, cat, count) in bills {
+            guard let aid = localId["chk"] else { continue }
+            for n in 0..<count {
+                let sfin = "bill-\(prefix)-\(n)"
+                let posted = now - (latest + Int64(n) * 30) * day
+                try saveTransaction(TransactionRecord(
+                    id: "txn-\(sfin)", accountId: aid, sfinTxnId: sfin, postedAt: posted, transactedAt: nil,
+                    amountCents: cents, description: payee, payee: payee, memo: nil, pending: false,
+                    categoryId: cat, categorySource: "manual",
+                    isTransfer: false, transferGroupId: nil, extraJson: nil, createdAt: now, updatedAt: now))
+            }
+        }
+
         // Property: Main House, value vs the linked mortgage → equity.
         try saveProperty(PropertyRecord(id: "prop-home", name: "Main House", kind: "real_estate", createdAt: now))
         try addPropertyValue(PropertyValueRecord(id: nil, propertyId: "prop-home", valueCents: 52_000_000,

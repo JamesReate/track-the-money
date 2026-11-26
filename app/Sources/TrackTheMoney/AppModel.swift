@@ -43,6 +43,8 @@ public final class AppModel {
     public var categories: [CategorySummary] = []
     public var rules: [Rule] = []
     public var spending: [SpendingLine] = []
+    /// This Month: big recurring bills still to come and already paid (ADR-0027).
+    public var expectedMonth: ExpectedMonth?
     public var spendingPeriods: [SpendingPeriod] = []
     public var selectedSpendingPeriod = ""
     public var statusMessage = ""
@@ -151,6 +153,7 @@ public final class AppModel {
             properties = try await core.properties()
             interest = try await core.interestSummary(from: 0, to: 4_102_444_800) // through ~2100
             rules = try await core.rules()
+            try await reloadExpected()
             buildSpendingPeriods()
             let period = spendingPeriods.first { $0.id == selectedSpendingPeriod }
             spending = try await core.spending(from: period?.from ?? 0, to: period?.to ?? 4_102_444_800)
@@ -644,6 +647,40 @@ public final class AppModel {
             }
         } catch { statusMessage = Self.message(error) }
         await refresh()
+    }
+
+    // MARK: Expected expenses (docs/plans/EXPECTED_EXPENSES_PLAN.md)
+
+    /// The current local month and the three complete months before it, most
+    /// recent first. TTMCore stays time-zone free; boundaries are made here.
+    static func expectedMonths(now: Date = Date(), calendar cal: Calendar = .current) -> (MonthSpan, [MonthSpan]) {
+        let start = cal.date(from: cal.dateComponents([.year, .month], from: now)) ?? now
+        func span(_ offset: Int) -> MonthSpan {
+            let s = cal.date(byAdding: .month, value: offset, to: start) ?? start
+            let e = cal.date(byAdding: .month, value: 1, to: s) ?? s
+            return MonthSpan(start: Time.unix(s), end: Time.unix(e))
+        }
+        return (span(0), [span(-1), span(-2), span(-3)])
+    }
+
+    private func reloadExpected() async throws {
+        let (current, previous) = Self.expectedMonths()
+        expectedMonth = try await core.expectedExpenses(current: current, previous: previous)
+    }
+
+    public func dismissExpected(_ item: ExpectedExpense) async {
+        do { try await core.dismissExpectedExpense(key: item.key, name: item.name); try await reloadExpected() }
+        catch { statusMessage = Self.message(error) }
+    }
+
+    public func restoreExpected(_ item: DismissedExpense) async {
+        do { try await core.restoreExpectedExpense(key: item.key); try await reloadExpected() }
+        catch { statusMessage = Self.message(error) }
+    }
+
+    public func setExpectedSettings(_ settings: ExpectedExpenseSettings) async {
+        do { try await core.setExpectedExpenseSettings(settings); try await reloadExpected() }
+        catch { statusMessage = Self.message(error) }
     }
 
     public func setHoldsNewAccounts(_ hold: Bool) async {
