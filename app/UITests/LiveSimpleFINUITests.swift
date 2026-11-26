@@ -52,7 +52,7 @@ final class LiveSimpleFINUITests: XCTestCase {
         field.typeText(token)
         // The keyboard covers the tab bar and swallows later taps — dismiss it
         // by tapping a non-interactive part of the form.
-        app.staticTexts["ADD SIMPLEFIN CONNECTION"].tap()
+        app.staticTexts["SIMPLEFIN CONNECTION"].tap()
 
         let add = app.buttons["Add connection"]
         XCTAssertTrue(add.isEnabled, "Add connection stayed disabled with a token entered")

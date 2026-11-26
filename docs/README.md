@@ -34,6 +34,7 @@ decided and why. New feature plans go here as `<FEATURE>_PLAN.md`.
 |---|---|
 | [CATEGORIZATION_PLAN.md](plans/CATEGORIZATION_PLAN.md) | ✅ Shipped — category tree, rules, on-device AI suggestions. |
 | [DATA_PORTABILITY_PLAN.md](plans/DATA_PORTABILITY_PLAN.md) | ✅ Shipped — `.ttmbackup` export/restore with undo. |
+| [PROFILES_PLAN.md](plans/PROFILES_PLAN.md) | ✅ Shipped — switchable profiles, open a backup as a profile, per-profile connection status. |
 
 ## Elsewhere in the repo
 

@@ -129,10 +129,49 @@ public struct InterestRollup: Equatable, Sendable {
     public init(total: Money, byAccount: [InterestLine]) { self.total = total; self.byAccount = byAccount }
 }
 
+/// Where a SimpleFIN connection stands *on this device* (PROFILES_PLAN §4.7).
+public enum ConnectionState: String, Equatable, Sendable {
+    /// Credential present in the Keychain and the last sync (if any) was fine.
+    case connected
+    /// The row exists but this device's Keychain holds nothing under its ref —
+    /// typically a store restored or imported from another device.
+    case missingCredential
+    /// The bridge refused the credential (HTTP 403); claim a new token.
+    case needsAuth
+    /// The last sync failed for some other reason (see `lastError`).
+    case error
+    /// Sample-data connection: no credential by design, never synced.
+    case sample
+
+    /// Re-linking with a fresh setup token would fix it.
+    public var canReconnect: Bool { self == .missingCredential || self == .needsAuth || self == .error }
+}
+
+public struct ConnectionSummary: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let name: String
+    public let org: String?
+    public let state: ConnectionState
+    public let lastError: String?
+    public let lastSyncedAt: UnixTime?
+    public let accountCount: Int
+    public init(id: String, name: String, org: String?, state: ConnectionState,
+                lastError: String?, lastSyncedAt: UnixTime?, accountCount: Int) {
+        self.id = id; self.name = name; self.org = org; self.state = state
+        self.lastError = lastError; self.lastSyncedAt = lastSyncedAt; self.accountCount = accountCount
+    }
+}
+
 /// The contract every TTMCore implementation (Swift now, Rust later) satisfies.
 public protocol CoreFacade: Sendable {
     // Connections / sync
     func claimSetupToken(_ token: String) async throws
+    /// The active profile's connections and whether each has a working
+    /// credential on this device.
+    func connections() async throws -> [ConnectionSummary]
+    /// Attach a freshly claimed Access URL to an *existing* connection, so its
+    /// accounts and history continue rather than being duplicated under a new one.
+    func reconnect(connectionId: String, setupToken: String) async throws
     func syncNow() async throws -> SyncOutcome
     func loadSampleData() async throws   // demo content; no network
 
@@ -209,6 +248,22 @@ public protocol CoreFacade: Sendable {
     func canUndoRestore() async -> Bool
     /// Put back the store the last restore replaced. Consumes the undo.
     func undoRestore() async throws
+
+    // Profiles (docs/plans/PROFILES_PLAN.md): independent data sets on this
+    // device, one active at a time. Every other method acts on the active one.
+    func profiles() async throws -> [ProfileSummary]
+    func activeProfile() async throws -> ProfileSummary
+    /// Register a new, empty profile. Does not switch to it.
+    func createProfile(name: String, kind: ProfileKind) async throws -> ProfileSummary
+    /// Close the active store and open another profile's, in place.
+    func switchProfile(id: String) async throws
+    func renameProfile(id: String, name: String) async throws
+    func setProfileKind(id: String, kind: ProfileKind) async throws
+    /// Delete an inactive profile's store and the Keychain items only it uses.
+    func deleteProfile(id: String) async throws
+    /// Validate a backup file and add it as a new profile (does not switch).
+    /// Never touches the active store.
+    func importProfile(from url: URL, name: String, kind: ProfileKind) async throws -> ProfileSummary
 
     // Real estate
     func addProperty(name: String, kind: String) async throws -> String

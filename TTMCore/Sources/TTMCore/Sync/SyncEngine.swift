@@ -30,7 +30,10 @@ public struct SyncEngine: Sendable {
         var succeeded = 0, failed = 0, newTxns = 0
         let now = clock.now()
         let rules = (try? categorizer.loadRules()) ?? []
-        let connections = (try? store.allConnections()) ?? []
+        // Sample-data rows have no credential by design; syncing them would only
+        // report a failure and flip them to "error".
+        let connections = ((try? store.allConnections()) ?? [])
+            .filter { $0.keychainRef != Store.sampleKeychainRef }
 
         for conn in connections {
             do {

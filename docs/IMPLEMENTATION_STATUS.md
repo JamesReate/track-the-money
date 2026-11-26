@@ -5,11 +5,11 @@ Resume pointer for Track The Money. See [PLAN.md](PLAN.md) (product) and
 Swift 6.3 toolchain.
 
 **Build & test:**
-- Core: `cd TTMCore && swift build && swift test` — **39 tests passing, 0 warnings**.
+- Core: `cd TTMCore && swift build && swift test` — **65 passing + 2 live tests skipped by default**.
 - App: `cd app && swift build` (or `swift run TrackTheMoney` on macOS) — builds clean.
 - UI tests: `xcodebuild test -scheme TrackTheMoney -only-testing:TrackTheMoneyUITests`
   (XCUITest target `app/UITests`) — drives the categorize/create/review/promotion + AI
-  suggestion flows on the Simulator; **5 passing**. (Launch args: `-resetStore` for a clean
+  suggestion flows, backup surface and profiles on the Simulator; **10 passing** (live test excluded). (Launch args: `-resetStore` for a clean
   DB; `-stubAI` forces the deterministic heuristic categorizer; `-noAI` disables it.)
 - Xcode (multiplatform): `xcodegen generate && open TrackTheMoney.xcodeproj` — see [BUILD.md](BUILD.md).
 
@@ -90,6 +90,22 @@ Swift 6.3 toolchain.
   never carries the SimpleFIN access URL. **12 new engine tests (51 total)** +
   2 UI smoke tests.
 
+- ✅ **Profiles** (see [PROFILES_PLAN.md](plans/PROFILES_PLAN.md), ADR-0023) — several
+  independent data sets on one device (`profiles/<id>/ttm.db` + `profiles.json`),
+  switched in place from Settings; the pre-profiles store is adopted as "My data".
+  New profile starts **Empty**, from **SimpleFIN's demo bank** (real claim + sync),
+  or from **Sample data**; `test` profiles show a banner on every tab. A backup can
+  be **opened as a new profile** (non-destructive) or replace the current one.
+  **Connection status per profile:** connected / not linked on this device /
+  needs re-auth / error / sample, with **Reconnect…** that re-links the *existing*
+  connection (no duplicate accounts). Each profile owns its Keychain items (re-key on
+  import; delete removes only unreferenced secrets). The SimpleFIN connection is
+  still never in a file (ADR-0020 stands). `-profile <name>` launch arg.
+  **14 new engine tests** (`ProfileTests`) + 2 UI tests (`ProfilesUITests`).
+- ✅ **Full-screen on iOS 26+** — the Info.plist lacked `UILaunchScreen`, so the
+  app ran letterboxed at 320×480; fixed in `project.yml`. This was the cause of the
+  "flaky" `testSearchFiltersCategoryList` — all categorize UI tests now pass.
+
 ### Next up (resume here)
 1. 🟡 **Live SimpleFIN verification — engine done, app run remaining.**
    `TTMCoreTests/LiveSimpleFINTests` (opt-in, `TTM_LIVE=1`) now proves the whole
@@ -129,5 +145,8 @@ and `SyncClient` are stubs in TTMCore. Contract: `contract/openapi.yaml`.
   opened read-only without its `-shm`; `BackupManager.inspect` falls back to a
   private copy. A copy taken while the app is running (content still in the
   `-wal`) is refused, not restored as empty.
-- ⚠️ `CategorizeUITests/testSearchFiltersCategoryList` fails (category picker not
-  rendering in time). Pre-existing — confirmed failing before the backup work.
+- `CategorizeUITests/testSearchFiltersCategoryList` used to fail: the app was
+  letterboxed (no `UILaunchScreen`) and rows sat under the tab bar. Passes since
+  the launch-screen fix.
+- Switching profiles mid-sync is blocked in `AppModel`, not the engine — revisit
+  when background refresh (Next up #2) lands.

@@ -32,14 +32,14 @@ final class BackupUITests: XCTestCase {
         let app = launchSettings()
         let export = app.buttons["Export backup…"]
         XCTAssertTrue(scrollTo(export, in: app), "Export row missing from Settings")
-        XCTAssertTrue(app.buttons["Restore from backup…"].exists, "Restore row missing from Settings")
+        XCTAssertTrue(scrollTo(app.buttons["Restore from backup…"], in: app), "Restore row missing from Settings")
         // Undo only appears once a restore has actually happened.
         XCTAssertFalse(app.buttons["Undo last restore"].exists, "Undo offered with nothing to undo")
     }
 
     func testBackupDisclosesThatSecretsAreExcluded() {
         let app = launchSettings()
-        let note = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Keychain'")).firstMatch
+        let note = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'stays in the Keychain'")).firstMatch
         XCTAssertTrue(scrollTo(note, in: app),
                       "the section must say the SimpleFIN connection isn't in the backup")
     }

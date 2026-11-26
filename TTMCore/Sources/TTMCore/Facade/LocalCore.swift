@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 
 /// The free, on-device `CoreFacade` implementation: SQLite + on-device SimpleFIN
 /// sync + deterministic rules. No backend. The SwiftUI app talks only to this.
@@ -38,7 +39,17 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
     }
 
     let clock: Clock
-    private let dbPath: String
+    /// The open store's file. Changes when the active profile switches, so it
+    /// is guarded by the same lock as `internals`.
+    private var _dbPath: String
+    private var dbPath: String {
+        internalsLock.lock(); defer { internalsLock.unlock() }
+        return _dbPath
+    }
+    /// nil for a fixed-path store (tests, previews): profile methods then throw
+    /// `ProfileError.unavailable`. Guarded by `profileLock`.
+    private let profileManager: ProfileManager?
+    private let profileLock = NSLock()
     private let secrets: SecretStore
     private let network: NetworkClient
     private let client: SimpleFINClient
@@ -55,10 +66,27 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
     /// rules-only exactly as today; the app layer injects a real one on capable
     /// devices. TTMCore never imports an Apple ML framework — the impl lives in the
     /// app and conforms to `OnDeviceCategorizer`.
-    public init(dbPath: String, secrets: SecretStore, network: NetworkClient, clock: Clock = SystemClock(),
-                onDeviceCategorizer: OnDeviceCategorizer = NoOpOnDeviceCategorizer()) throws {
+    public convenience init(dbPath: String, secrets: SecretStore, network: NetworkClient, clock: Clock = SystemClock(),
+                            onDeviceCategorizer: OnDeviceCategorizer = NoOpOnDeviceCategorizer()) throws {
+        try self.init(dbPath: dbPath, profiles: nil, secrets: secrets, network: network, clock: clock,
+                      onDeviceCategorizer: onDeviceCategorizer)
+    }
+
+    /// Profile-aware store rooted at `profilesRoot` (PROFILES_PLAN §4.1): opens
+    /// the active profile, adopting a pre-profiles `<root>/ttm.db` on first run.
+    public convenience init(profilesRoot: URL, secrets: SecretStore, network: NetworkClient,
+                            clock: Clock = SystemClock(),
+                            onDeviceCategorizer: OnDeviceCategorizer = NoOpOnDeviceCategorizer()) throws {
+        let manager = try ProfileManager(root: profilesRoot, clock: clock)
+        try self.init(dbPath: manager.activeStorePath, profiles: manager, secrets: secrets, network: network,
+                      clock: clock, onDeviceCategorizer: onDeviceCategorizer)
+    }
+
+    private init(dbPath: String, profiles: ProfileManager?, secrets: SecretStore, network: NetworkClient,
+                 clock: Clock, onDeviceCategorizer: OnDeviceCategorizer) throws {
         let client = LiveSimpleFINClient(net: network)
-        self.dbPath = dbPath
+        self._dbPath = dbPath
+        self.profileManager = profiles
         self.secrets = secrets
         self.network = network
         self.clock = clock
@@ -71,8 +99,68 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
     // MARK: Connections / sync
 
     public func claimSetupToken(_ token: String) async throws {
-        // SimpleFIN: base64-decode the setup token to a claim URL, POST to it,
-        // receive the long-lived Access URL. Store it in Keychain (device-only).
+        let accessURL = try await claimAccessURL(token)
+        let now = clock.now()
+        let keychainRef = Self.newKeychainRef()
+        try secrets.write(accessURL, ref: keychainRef)
+        try store.saveConnection(ConnectionRecord(
+            id: UUID().uuidString,
+            name: token == SimpleFINDemo.setupToken ? SimpleFINDemo.connectionName : "SimpleFIN connection",
+            keychainRef: keychainRef,
+            sfinOrg: nil,
+            status: "ok",
+            lastError: nil,
+            lastSyncedAt: nil,
+            createdAt: now
+        ))
+    }
+
+    public func connections() async throws -> [ConnectionSummary] {
+        let accountCounts = Dictionary(grouping: try store.allAccounts(), by: \.connectionId).mapValues(\.count)
+        return try store.allConnections().map { conn in
+            ConnectionSummary(id: conn.id, name: conn.name, org: conn.sfinOrg,
+                              state: try state(of: conn), lastError: conn.lastError,
+                              lastSyncedAt: conn.lastSyncedAt, accountCount: accountCounts[conn.id] ?? 0)
+        }
+    }
+
+    public func reconnect(connectionId: String, setupToken: String) async throws {
+        guard var conn = try store.allConnections().first(where: { $0.id == connectionId }) else {
+            throw TTMError.notFound
+        }
+        let accessURL = try await claimAccessURL(setupToken)
+        // A fresh ref, not an overwrite: the old one may be shared with another
+        // profile that came from the same file, and that profile shouldn't
+        // silently start syncing with this credential.
+        let oldRef = conn.keychainRef
+        let newRef = Self.newKeychainRef()
+        try secrets.write(accessURL, ref: newRef)
+        conn.keychainRef = newRef
+        conn.status = "ok"
+        conn.lastError = nil
+        try store.saveConnection(conn)
+        if profileManager != nil {
+            try withProfiles { try deleteSecretsIfUnreferenced([oldRef], manager: $0) }
+        } else {
+            try deleteSecretsIfUnreferenced([oldRef], manager: nil)
+        }
+    }
+
+    private func state(of conn: ConnectionRecord) throws -> ConnectionState {
+        if conn.keychainRef == Store.sampleKeychainRef { return .sample }
+        guard try secrets.read(ref: conn.keychainRef) != nil else { return .missingCredential }
+        switch conn.status {
+        case "needs_auth": return .needsAuth
+        case "error":      return .error
+        default:           return .connected
+        }
+    }
+
+    private static func newKeychainRef() -> String { "conn-\(UUID().uuidString)" }
+
+    /// SimpleFIN: base64-decode the setup token to a claim URL, POST to it,
+    /// receive the long-lived Access URL. The caller puts it in the SecretStore.
+    private func claimAccessURL(_ token: String) async throws -> String {
         guard let data = Data(base64Encoded: token.trimmingCharacters(in: .whitespacesAndNewlines)),
               let claimURLString = String(data: data, encoding: .utf8),
               let claimURL = URL(string: claimURLString.trimmingCharacters(in: .whitespacesAndNewlines)) else {
@@ -84,20 +172,7 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines), !accessURL.isEmpty else {
             throw TTMError.simplefin("claim returned no access URL")
         }
-
-        let now = clock.now()
-        let keychainRef = "conn-\(UUID().uuidString)"
-        try secrets.write(accessURL, ref: keychainRef)
-        try store.saveConnection(ConnectionRecord(
-            id: UUID().uuidString,
-            name: "SimpleFIN connection",
-            keychainRef: keychainRef,
-            sfinOrg: nil,
-            status: "ok",
-            lastError: nil,
-            lastSyncedAt: nil,
-            createdAt: now
-        ))
+        return accessURL
     }
 
     public func syncNow() async throws -> SyncOutcome {
@@ -420,8 +495,139 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
     /// Rebind Store/SyncEngine/Categorizer onto whatever file now sits at
     /// `dbPath`. Migrations run here, so an older backup upgrades itself.
     private func rebuildInternals() throws {
-        let fresh = try Internals(dbPath: dbPath, secrets: secrets, clock: clock,
+        try rebind(to: dbPath)
+    }
+
+    /// Open `path` and make it the live store. The old internals stay in place
+    /// until the new ones are built, so a failure here leaves nothing changed.
+    private func rebind(to path: String) throws {
+        let fresh = try Internals(dbPath: path, secrets: secrets, clock: clock,
                                   client: client, onDevice: onDeviceCategorizer)
-        internalsLock.lock(); _internals = fresh; internalsLock.unlock()
+        internalsLock.lock(); _internals = fresh; _dbPath = path; internalsLock.unlock()
+    }
+
+    // MARK: Profiles (docs/plans/PROFILES_PLAN.md)
+
+    /// Run `body` against the profile registry, serialized.
+    private func withProfiles<T>(_ body: (ProfileManager) throws -> T) throws -> T {
+        guard let manager = profileManager else { throw ProfileError.unavailable }
+        profileLock.lock(); defer { profileLock.unlock() }
+        return try body(manager)
+    }
+
+    public func profiles() async throws -> [ProfileSummary] {
+        try withProfiles { $0.summaries() }
+    }
+
+    public func activeProfile() async throws -> ProfileSummary {
+        try withProfiles { try $0.summary(id: $0.activeId) }
+    }
+
+    public func createProfile(name: String, kind: ProfileKind) async throws -> ProfileSummary {
+        try withProfiles { try $0.summary(id: $0.create(name: name, kind: kind).id) }
+    }
+
+    public func switchProfile(id: String) async throws {
+        try withProfiles { manager in
+            guard id != manager.activeId else { return }
+            _ = try manager.summary(id: id)               // exists?
+            let previous = dbPath
+            try internals.database.close()
+            do {
+                try rebind(to: manager.storePath(for: id))
+            } catch {
+                try? rebind(to: previous)                 // never leave the app without a store
+                throw error
+            }
+            try manager.setActive(id)
+        }
+    }
+
+    public func renameProfile(id: String, name: String) async throws {
+        try withProfiles { try $0.rename(id, to: name) }
+    }
+
+    public func setProfileKind(id: String, kind: ProfileKind) async throws {
+        try withProfiles { try $0.setKind(id, to: kind) }
+    }
+
+    public func deleteProfile(id: String) async throws {
+        try withProfiles { manager in
+            guard id != manager.activeId else { throw ProfileError.cannotDeleteActive }
+            guard manager.summaries().count > 1 else { throw ProfileError.cannotDeleteLast }
+            let path = manager.storePath(for: id)
+            let refs = ((try? Self.keychainRefs(atPath: path)) ?? [])
+                + ((try? Self.keychainRefs(atPath: path + BackupManager.preRestoreSuffix)) ?? [])
+            try manager.delete(id)
+            // After unregistering, so the profile's own refs don't count as "in use".
+            try deleteSecretsIfUnreferenced(refs, manager: manager)
+        }
+    }
+
+    public func importProfile(from url: URL, name: String, kind: ProfileKind) async throws -> ProfileSummary {
+        _ = try BackupManager.inspect(at: url)            // validate before anything is created
+        return try withProfiles { manager in
+            let id = try manager.reserveDirectory()
+            do {
+                let path = manager.storePath(for: id)
+                try FileManager.default.copyItem(at: url, to: URL(fileURLWithPath: path))
+                try rekeyConnections(atPath: path)
+                return try manager.summary(id: manager.register(id: id, name: name, kind: kind).id)
+            } catch {
+                manager.discardDirectory(id)
+                throw error
+            }
+        }
+    }
+
+    /// Give every real connection in an imported store its own Keychain ref,
+    /// copying the secret across when the old ref resolves on this device. Each
+    /// profile then owns its Keychain items outright, so deleting or
+    /// reconnecting one never reaches into another (PROFILES_PLAN §4.3).
+    private func rekeyConnections(atPath path: String) throws {
+        let database = try Database(path: path)           // migrates an older file forward
+        defer { try? database.close() }
+        let store = Store(database)
+        for var conn in try store.allConnections() where conn.keychainRef != Store.sampleKeychainRef {
+            let newRef = Self.newKeychainRef()
+            if let secret = try secrets.read(ref: conn.keychainRef) {
+                try secrets.write(secret, ref: newRef)
+            }
+            conn.keychainRef = newRef
+            try store.saveConnection(conn)
+        }
+    }
+
+    /// The `keychain_ref`s a store file points at. A plain query, not a
+    /// `Database` open, so it never runs migrations on (say) an undo copy.
+    private static func keychainRefs(atPath path: String) throws -> [String] {
+        guard FileManager.default.fileExists(atPath: path) else { return [] }
+        let queue = try DatabaseQueue(path: path)
+        defer { try? queue.close() }
+        return try queue.read { try String.fetchAll($0, sql: "SELECT keychain_ref FROM connections") }
+    }
+
+    /// Delete secrets that no store still points at — including each profile's
+    /// undo copy, so "Undo last restore" brings back a working connection.
+    /// Stores restored from the same backup can share refs, so ownership is
+    /// checked, not assumed. Pass the manager from inside `withProfiles`.
+    private func deleteSecretsIfUnreferenced(_ refs: [String], manager: ProfileManager?) throws {
+        let candidates = Set(refs).subtracting([Store.sampleKeychainRef])
+        guard !candidates.isEmpty else { return }
+        var inUse = Set(try store.allConnections().map(\.keychainRef))
+        var paths = [dbPath + BackupManager.preRestoreSuffix]
+        if let manager {
+            for profile in manager.summaries() {
+                let path = manager.storePath(for: profile.id)
+                if !profile.isActive { paths.append(path) }
+                paths.append(path + BackupManager.preRestoreSuffix)
+            }
+        }
+        // If any store can't be read, we can't prove a secret is unused — keep them all.
+        for path in Set(paths) {
+            guard let refs = try? Self.keychainRefs(atPath: path) else { return }
+            inUse.formUnion(refs)
+        }
+        for ref in candidates.subtracting(inUse) { try? secrets.delete(ref: ref) }
     }
 }

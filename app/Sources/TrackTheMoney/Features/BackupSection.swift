@@ -27,20 +27,27 @@ struct BackupFile: Transferable {
     }
 }
 
+/// Picker state for the Backup section, owned by SettingsView so the pickers
+/// and the confirm sheet attach to the Form, not the Section (see ProfilesUI).
+struct BackupUI {
+    var exporting = false
+    var importing = false
+}
+
 struct BackupSection: View {
     @Bindable var model: AppModel
-    @State private var exporting = false
-    @State private var importing = false
+    @Binding var ui: BackupUI
 
     var body: some View {
         Section {
             Button("Export backup…") {
                 Task {
                     await model.startExport()
-                    exporting = model.pendingExport != nil
+                    ui.exporting = model.pendingExport != nil
                 }
             }
-            Button("Restore from backup…") { importing = true }
+            Button("Restore from backup…") { ui.importing = true }
+                .disabled(model.isSyncing || model.isSwitchingProfile)
 
             if model.canUndoRestore {
                 Button("Undo last restore", role: .destructive) {
@@ -48,44 +55,74 @@ struct BackupSection: View {
                 }
             }
 
-            Text("One file with everything: accounts, transactions, categories, rules and history. Your SimpleFIN connection isn’t included — it stays in the Keychain.")
+            Text("One file with everything in this profile: accounts, transactions, categories, rules and history. A backup can be opened as its own profile or replace this one. Your SimpleFIN connection isn’t included — it stays in the Keychain.")
                 .font(.caption).foregroundStyle(Brand.slate)
         } header: { Eyebrow("Backup") }
         .listRowBackground(Brand.surface)
-        .fileExporter(
-            isPresented: $exporting,
-            item: model.pendingExport.map(BackupFile.init(url:)),
-            contentTypes: [.ttmBackup],
-            defaultFilename: model.pendingExport?.lastPathComponent
-        ) { result in
-            model.finishExport(result)
-        }
-        // Content decides validity, not the extension — a store copied by hand
-        // arrives as .db, so don't filter the picker down to our own type.
-        .fileImporter(
-            isPresented: $importing,
-            allowedContentTypes: [.ttmBackup, .database, .data]
-        ) { result in
-            switch result {
-            case .success(let url): Task { await model.prepareRestore(from: url) }
-            case .failure(let error):
-                let cancelled = (error as NSError).code == NSUserCancelledError
-                if !cancelled { model.statusMessage = "Couldn’t open that file: \(error.localizedDescription)" }
-            }
-        }
-        .sheet(item: $model.pendingRestore) { pending in
-            RestoreConfirmSheet(pending: pending,
-                                confirm: { Task { await model.confirmRestore() } },
-                                cancel: { model.cancelRestore() })
-        }
     }
 }
 
-/// What's in the file and what replacing costs, before anything is touched.
+struct BackupPresentations: ViewModifier {
+    @Bindable var model: AppModel
+    @Binding var ui: BackupUI
+
+    func body(content: Content) -> some View {
+        content
+            .fileExporter(
+                isPresented: $ui.exporting,
+                item: model.pendingExport.map(BackupFile.init(url:)),
+                contentTypes: [.ttmBackup],
+                defaultFilename: model.pendingExport?.lastPathComponent
+            ) { result in
+                model.finishExport(result)
+            }
+            // Content decides validity, not the extension — a store copied by hand
+            // arrives as .db, so don't filter the picker down to our own type.
+            .fileImporter(
+                isPresented: $ui.importing,
+                allowedContentTypes: [.ttmBackup, .database, .data]
+            ) { result in
+                switch result {
+                case .success(let url): Task { await model.prepareRestore(from: url) }
+                case .failure(let error):
+                    let cancelled = (error as NSError).code == NSUserCancelledError
+                    if !cancelled { model.statusMessage = "Couldn’t open that file: \(error.localizedDescription)" }
+                }
+            }
+            .sheet(item: $model.pendingRestore) { pending in
+                RestoreConfirmSheet(pending: pending,
+                                    currentProfileName: model.activeProfile?.name,
+                                    openAsProfile: { name, kind in
+                                        Task { await model.openPendingAsProfile(name: name, kind: kind) }
+                                    },
+                                    replace: { Task { await model.confirmRestore() } },
+                                    cancel: { model.cancelRestore() })
+            }
+    }
+}
+
+/// What's in the file, and the two things you can do with it: open it as a new
+/// profile (non-destructive, the default) or replace the current profile.
 struct RestoreConfirmSheet: View {
     let pending: PendingRestore
-    let confirm: () -> Void
+    let currentProfileName: String?
+    let openAsProfile: (String, ProfileKind) -> Void
+    let replace: () -> Void
     let cancel: () -> Void
+
+    @State private var profileName: String
+    @State private var isTest = false
+
+    init(pending: PendingRestore, currentProfileName: String?,
+         openAsProfile: @escaping (String, ProfileKind) -> Void,
+         replace: @escaping () -> Void, cancel: @escaping () -> Void) {
+        self.pending = pending
+        self.currentProfileName = currentProfileName
+        self.openAsProfile = openAsProfile
+        self.replace = replace
+        self.cancel = cancel
+        _profileName = State(initialValue: pending.displayName)
+    }
 
     var body: some View {
         NavigationStack {
@@ -103,23 +140,34 @@ struct RestoreConfirmSheet: View {
                 } header: { Eyebrow("This backup contains") }
                 .listRowBackground(Brand.surface)
 
-                Section {
-                    Text("Restoring replaces everything currently in the app. You can undo it right afterwards.")
-                        .font(.callout)
-                    if pending.info.needsMigration {
-                        Text("This backup is from an older version — it’ll be upgraded as it’s restored.")
+                if pending.info.needsMigration {
+                    Section {
+                        Text("This backup is from an older version — it’ll be upgraded as it’s opened.")
                             .font(.caption).foregroundStyle(Brand.slate)
                     }
+                    .listRowBackground(Brand.surface)
                 }
+
+                Section {
+                    TextField("Profile name", text: $profileName)
+                        .accessibilityIdentifier("importProfileName")
+                    Toggle("Test profile", isOn: $isTest)
+                    Button("Open as new profile") { openAsProfile(profileName, isTest ? .test : .real) }
+                        .disabled(profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Text("Keeps everything you have now; switch between them in Settings.")
+                        .font(.caption).foregroundStyle(Brand.slate)
+                } header: { Eyebrow("Open as a new profile") }
                 .listRowBackground(Brand.surface)
 
                 Section {
-                    Button("Replace my data", role: .destructive, action: confirm)
-                }
+                    Button("Replace \(currentProfileName.map { "“\($0)”" } ?? "my data")", role: .destructive, action: replace)
+                    Text("Replaces everything in the current profile with this backup. You can undo it right afterwards.")
+                        .font(.caption).foregroundStyle(Brand.slate)
+                } header: { Eyebrow("Or replace this profile") }
                 .listRowBackground(Brand.surface)
             }
             .statementBackground()
-            .inlineNavTitle("Restore backup")
+            .inlineNavTitle("Open backup")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: cancel) }
             }

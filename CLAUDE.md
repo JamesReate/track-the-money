@@ -13,7 +13,8 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
   - `Money/` — `Money` value type; `Time/` — UTC unix-seconds helpers.
   - `Persistence/` — `Database` (GRDB, migrations), `Store` (DAO), `Records`,
     `DefaultData` (idempotent seed: categories tree + default interest rule),
-    `BackupManager` (.ttmbackup export/validate/restore).
+    `BackupManager` (.ttmbackup export/validate/restore), `ProfileManager`
+    (profile registry + per-profile store folders, legacy-store adoption).
   - `SimpleFIN/` — Codable protocol models + `LiveSimpleFINClient`.
   - `Sync/` — `SyncEngine` (idempotent upsert on `(account_id, sfin_txn_id)`,
     balance snapshots, pending→posted reconcile), `Transfers` auto-detection.
@@ -50,6 +51,8 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
   - `CATEGORIZATION_PLAN.md` — shipped.
   - `DATA_PORTABILITY_PLAN.md` — backup/restore, shipped (see below); its §9
     records what implementation turned up that the plan didn't foresee.
+  - `PROFILES_PLAN.md` — profiles (switchable data sets), shipped; §8 has
+    implementation notes.
 
 ## Architecture rules (do not break)
 
@@ -87,11 +90,11 @@ anything; if it *is* wrong, write a superseding ADR rather than quietly breaking
 ## Build & test
 
 ```bash
-cd TTMCore && swift test                 # engine tests (51, XCTest)
+cd TTMCore && swift test                 # engine tests (65 + 2 opt-in live, XCTest)
 cd app && swift build                    # SwiftUI compiles headlessly (macOS host)
 cd app && swift run TrackTheMoney        # run the Mac app from CLI
 xcodegen generate                        # project.yml → TrackTheMoney.xcodeproj
-xcodebuild -scheme TrackTheMoney -destination 'platform=macOS' build
+xcodebuild -scheme TrackTheMoney -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO
 xcodebuild test -scheme TrackTheMoney -only-testing:TrackTheMoneyUITests
 ```
 
@@ -100,12 +103,14 @@ xcodebuild test -scheme TrackTheMoney -only-testing:TrackTheMoneyUITests
 - `TrackTheMoney.xcodeproj` is **gitignored** — regenerate with `xcodegen
   generate` after editing `project.yml`; never hand-edit the project.
 - Launch arguments (read in `App.swift` / `AppModel.swift`):
-  - `-sampleData` — load demo data at launch (also: Settings → Load sample data,
-    which calls `LocalCore.loadSampleData()`).
+  - `-sampleData` — load demo data into the active profile at launch (in the UI,
+    sample data is a starting point for Settings → New profile…).
+  - `-profile <name>` — open that profile at launch, creating it (as `test`) if
+    missing. Runs before `-sampleData`.
   - `-tab <name>` — select a tab; tags: `networth accounts transactions spending
     categories rules realestate debt settings`.
-  - `-resetStore` — delete the DB (`Application Support/TrackTheMoney/ttm.db`
-    + wal/shm) before opening.
+  - `-resetStore` — delete `Application Support/TrackTheMoney/` (every profile,
+    `profiles.json`, any legacy `ttm.db`) before opening.
   - `-stubAI` — force `HeuristicOnDeviceCategorizer` (deterministic, for tests);
     `-noAI` — inject `NoOpOnDeviceCategorizer`.
 
@@ -120,8 +125,15 @@ xcodebuild test -scheme TrackTheMoney -only-testing:TrackTheMoneyUITests
   iPhone the app's 9 tabs collapse into "More", and `Form` rows render lazily —
   scroll `app.collectionViews.firstMatch`, not the app window, to reach rows
   below the fold (see `BackupUITests.scrollTo`).
-- Known-flaky before this work: `CategorizeUITests/testSearchFiltersCategoryList`
-  fails on the category picker not rendering in time. Unrelated to backup.
+- `project.yml` must keep `INFOPLIST_KEY_UILaunchScreen_Generation: YES`:
+  without a launch screen the iOS 26+ SDK runs the app letterboxed at 320×480,
+  and UI tests fail on rows hidden under the tab bar.
+- In SwiftUI `Form`s, attach `.sheet`/`.alert`/`.confirmationDialog`/
+  `.fileImporter` to the `Form`, not a `Section` — on a Section they don't
+  reliably present. Settings keeps presentation state in `SettingsView` and
+  applies each section's `…Presentations` modifier to the Form.
+- `isHittable` is true for rows under iOS 26's floating tab bar; check the
+  frame against `app.tabBars.firstMatch` (see `ProfilesUITests.isClear`).
 - **Live SimpleFIN tests** (opt-in, hit the real network — skipped by default):
   ```bash
   cd TTMCore && TTM_LIVE=1 swift test --filter LiveSimpleFINTests   # engine: claim→fetch→sync
@@ -170,6 +182,28 @@ Per `docs/plans/DATA_PORTABILITY_PLAN.md`; phases 1–2 implemented. The shape:
   opened read-only without its `-shm`, so `inspect` falls back to a private copy.
   A copy taken while the app was running (content still in the `-wal`) is
   correctly refused rather than restored as empty.
+
+## Profiles (shipped)
+
+Per `docs/plans/PROFILES_PLAN.md`, decided in ADR-0023. Several independent
+stores on one device, one active:
+
+- Layout: `Application Support/TrackTheMoney/profiles.json` (registry, active id)
+  + `profiles/<id>/ttm.db`. A pre-profiles `ttm.db` at the root is adopted as
+  "My data" on first launch (crash-safe ordering in `ProfileManager`).
+- `LocalCore(profilesRoot:)` is profile-aware; `LocalCore(dbPath:)` (tests) has
+  none and profile methods throw `ProfileError.unavailable`. Switching rebinds
+  internals in place, like restore; restore/undo act on the active profile.
+- Facade: `profiles / activeProfile / createProfile / switchProfile /
+  renameProfile / setProfileKind / deleteProfile / importProfile` plus
+  `connections()` (state: connected, missingCredential, needsAuth, error,
+  sample) and `reconnect(connectionId:setupToken:)`, which re-links the
+  *existing* connection so accounts don't duplicate.
+- Keychain ownership: import re-keys every connection; delete/reconnect remove
+  only secrets no store (including `.pre-restore` undo copies) still references.
+  The access URL still never goes into a file.
+- Kind is `real | test` (display only → banner on every tab). The sample
+  connection's `keychain_ref` is `Store.sampleKeychainRef`; sync skips it.
 
 ## Gotchas
 

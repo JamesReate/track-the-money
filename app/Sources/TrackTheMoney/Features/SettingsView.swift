@@ -3,56 +3,29 @@ import TTMCore
 
 struct SettingsView: View {
     @Bindable var model: AppModel
-    @State private var setupToken = ""
+    @State private var profilesUI = ProfilesUI()
+    @State private var reconnecting: ConnectionSummary?
+    @State private var backupUI = BackupUI()
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    TextField("Setup token", text: $setupToken, axis: .vertical)
-                        .lineLimit(1...4)
-                        // A vertical-axis TextField exposes its placeholder as
-                        // placeholderValue, not a label — UI tests need a handle.
-                        .accessibilityIdentifier("setupToken")
-                    Button("Add connection") {
-                        let token = setupToken
-                        setupToken = ""
-                        Task { await model.claim(token: token) }
-                    }
-                    .disabled(setupToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                } header: { Eyebrow("Add SimpleFIN connection") }
-                .listRowBackground(Brand.surface)
-
-                Section {
-                    Button {
-                        Task { await model.syncNow() }
-                    } label: {
-                        HStack {
-                            Text("Sync now")
-                            if model.isSyncing { Spacer(); ProgressView() }
-                        }
-                    }
-                    .disabled(model.isSyncing)
-                    Text("Auto-sync runs weekly. Your data stays on this device — we can’t see it.")
-                        .font(.caption).foregroundStyle(Brand.slate)
-                } header: { Eyebrow("Sync") }
-                .listRowBackground(Brand.surface)
-
-                Section {
-                    Button("Load sample data") { Task { await model.loadSampleData() } }
-                    Text("Explore the app with demo accounts before connecting a bank.")
-                        .font(.caption).foregroundStyle(Brand.slate)
-                } header: { Eyebrow("Try it") }
-                .listRowBackground(Brand.surface)
-
-                BackupSection(model: model)
-
+                // First, so the result of a switch / sync / restore is never below the fold.
                 if !model.statusMessage.isEmpty {
                     Section { Text(model.statusMessage).font(.callout) }
                         header: { Eyebrow("Status") }
                         .listRowBackground(Brand.surface)
                 }
+
+                ProfilesSection(model: model, ui: $profilesUI)
+
+                ConnectionSection(model: model, reconnecting: $reconnecting)
+
+                BackupSection(model: model, ui: $backupUI)
             }
+            .modifier(ProfilesPresentations(model: model, ui: $profilesUI))
+            .modifier(ReconnectPresentation(model: model, reconnecting: $reconnecting))
+            .modifier(BackupPresentations(model: model, ui: $backupUI))
             .statementBackground()
             .inlineNavTitle("Settings")
         }

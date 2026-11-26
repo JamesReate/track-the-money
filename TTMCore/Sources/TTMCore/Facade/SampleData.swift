@@ -11,10 +11,14 @@ extension LocalCore {
 }
 
 extension Store {
+    /// The sample connection's `keychain_ref`. Nothing is ever stored under it:
+    /// sync skips it and `connections()` reports it as `.sample`.
+    public static let sampleKeychainRef = "demo"
+
     func loadSample(now: Int64) throws {
         let day: Int64 = 86_400
         let conn = "demo-conn"
-        try saveConnection(ConnectionRecord(id: conn, name: "Demo (sample data)", keychainRef: "demo",
+        try saveConnection(ConnectionRecord(id: conn, name: "Demo (sample data)", keychainRef: Store.sampleKeychainRef,
                                             sfinOrg: "Demo Bank", status: "ok", lastError: nil,
                                             lastSyncedAt: now, createdAt: now))
 

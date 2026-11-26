@@ -16,6 +16,8 @@ public struct PendingRestore: Identifiable, Sendable {
     public let id = UUID()
     public let url: URL
     public let info: BackupInfo
+    /// The picked file's name without extension — the default profile name.
+    public var displayName: String = "Imported"
 }
 
 /// Observable view-model bridging SwiftUI to the `CoreFacade`. Owns one facade
@@ -53,12 +55,43 @@ public final class AppModel {
     public var pendingRestore: PendingRestore?
     /// A pre-restore copy exists, so "Undo last restore" is offered.
     public var canUndoRestore = false
+    /// Every profile on this device, and the one whose data is on screen
+    /// (docs/plans/PROFILES_PLAN.md).
+    public var profiles: [ProfileSummary] = []
+    public var activeProfile: ProfileSummary?
+    /// The active profile's SimpleFIN connections and their state on this device.
+    public var connections: [ConnectionSummary] = []
+    /// A switch or profile creation is in flight — disables further switching.
+    public var isSwitchingProfile = false
+
+    /// What a new profile starts with.
+    public enum ProfileSeed: String, CaseIterable, Identifiable, Sendable {
+        case empty, demoBank, sampleData
+        public var id: String { rawValue }
+        public var label: String {
+            switch self {
+            case .empty:      return "Empty"
+            case .demoBank:   return "SimpleFIN demo bank"
+            case .sampleData: return "Sample data"
+            }
+        }
+        /// Demo and sample profiles are test data by definition.
+        public var suggestedKind: ProfileKind { self == .empty ? .real : .test }
+        public var suggestedName: String {
+            switch self {
+            case .empty:      return ""
+            case .demoBank:   return "SimpleFIN demo"
+            case .sampleData: return "Sample data"
+            }
+        }
+    }
 
     public init(core: CoreFacade) { self.core = core }
 
     /// Live model backed by SQLite in Application Support + Keychain + URLSession.
+    /// One store per profile under `Application Support/TrackTheMoney/`.
     public static func live() throws -> AppModel {
-        let core = try LocalCore(dbPath: try databasePath(),
+        let core = try LocalCore(profilesRoot: try storeRoot(),
                                  secrets: KeychainSecretStore(),
                                  network: URLSessionNetworkClient(),
                                  onDeviceCategorizer: makeOnDeviceCategorizer())
@@ -83,7 +116,11 @@ public final class AppModel {
 
     public func refresh() async {
         canUndoRestore = await core.canUndoRestore()
+        // Profiles are unavailable on a fixed-path core (previews); not an error.
+        profiles = (try? await core.profiles()) ?? []
+        activeProfile = profiles.first { $0.isActive }
         do {
+            connections = try await core.connections()
             netWorth = try await core.netWorthSummary()
             series = try await core.netWorthSeries(from: nil, to: nil)
             debtSeries = try await core.debtSeries(from: nil, to: nil)
@@ -361,7 +398,104 @@ public final class AppModel {
             await syncNow()
         } catch {
             statusMessage = "Claim failed: \(error)"
+            connections = (try? await core.connections()) ?? connections
         }
+    }
+
+    /// Re-link an existing connection with a fresh setup token, keeping its
+    /// accounts and history (PROFILES_PLAN §4.7).
+    public func reconnect(connectionId: String, token: String) async {
+        do {
+            try await core.reconnect(connectionId: connectionId, setupToken: token)
+            statusMessage = "Connection re-linked"
+            await syncNow()
+        } catch {
+            statusMessage = "Reconnect failed: \(error)"
+        }
+    }
+
+    /// Connections sync can actually reach (sample rows have no credential).
+    public var hasSyncableConnection: Bool { connections.contains { $0.state != .sample } }
+
+    // MARK: Profiles (docs/plans/PROFILES_PLAN.md)
+
+    public func switchProfile(to id: String) async {
+        guard !isSyncing, !isSwitchingProfile, id != activeProfile?.id else { return }
+        isSwitchingProfile = true
+        defer { isSwitchingProfile = false }
+        do {
+            try await core.switchProfile(id: id)
+            resetPerProfileViewState()
+            await refresh()
+            statusMessage = ""
+        } catch {
+            statusMessage = "Couldn’t switch profile: \(Self.message(error))"
+        }
+    }
+
+    /// Create a profile, switch to it, and fill it per `seed`. The demo bank
+    /// claims SimpleFIN's public demo token over the network and syncs.
+    public func createProfile(name: String, kind: ProfileKind, seed: ProfileSeed) async {
+        guard !isSyncing, !isSwitchingProfile else { return }
+        let made: ProfileSummary
+        do { made = try await core.createProfile(name: name, kind: kind) }
+        catch { statusMessage = "Couldn’t create profile: \(Self.message(error))"; return }
+        await switchProfile(to: made.id)
+        guard activeProfile?.id == made.id else { return }
+        switch seed {
+        case .empty:
+            statusMessage = "Created “\(made.name)”. Add a SimpleFIN connection to start syncing."
+        case .sampleData:
+            await loadSampleData()
+        case .demoBank:
+            await claim(token: SimpleFINDemo.setupToken)
+        }
+    }
+
+    public func renameProfile(id: String, to name: String) async {
+        do { try await core.renameProfile(id: id, name: name); await refreshProfiles() }
+        catch { statusMessage = Self.message(error) }
+    }
+
+    public func setProfileKind(id: String, to kind: ProfileKind) async {
+        do { try await core.setProfileKind(id: id, kind: kind); await refreshProfiles() }
+        catch { statusMessage = Self.message(error) }
+    }
+
+    public func deleteProfile(id: String) async {
+        let name = profiles.first { $0.id == id }?.name ?? "Profile"
+        do {
+            try await core.deleteProfile(id: id)
+            await refreshProfiles()
+            statusMessage = "Deleted “\(name)”."
+        } catch {
+            statusMessage = Self.message(error)
+        }
+    }
+
+    /// `-profile <name>`: open that profile at launch, creating it if needed.
+    public func applyLaunchProfile(named name: String) async {
+        let all = (try? await core.profiles()) ?? []
+        if let match = all.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            await switchProfile(to: match.id)
+        } else if let made = try? await core.createProfile(name: name, kind: .test) {
+            await switchProfile(to: made.id)
+        }
+    }
+
+    private func refreshProfiles() async {
+        profiles = (try? await core.profiles()) ?? profiles
+        activeProfile = profiles.first { $0.isActive }
+    }
+
+    /// Search text, filters and highlights belong to the profile being left.
+    private func resetPerProfileViewState() {
+        txnSearch = ""
+        txnFilter = .all
+        lastCategorized = nil
+        selectedSpendingPeriod = ""
+        pendingRestore.map { try? FileManager.default.removeItem(at: $0.url) }
+        pendingRestore = nil
     }
 
     public func setClass(accountId: String, to cls: AccountClass) async {
@@ -408,7 +542,8 @@ public final class AppModel {
             .appendingPathComponent("ttm-restore-\(UUID().uuidString).\(BackupManager.fileExtension)")
         do {
             try fm.copyItem(at: picked, to: temp)
-            pendingRestore = PendingRestore(url: temp, info: try await core.inspectBackup(at: temp))
+            pendingRestore = PendingRestore(url: temp, info: try await core.inspectBackup(at: temp),
+                                            displayName: picked.deletingPathExtension().lastPathComponent)
         } catch {
             try? fm.removeItem(at: temp)
             statusMessage = Self.message(error)
@@ -429,12 +564,34 @@ public final class AppModel {
             let info = try await core.restoreBackup(from: pending.url)
             canUndoRestore = await core.canUndoRestore()
             await refresh()
-            // Secrets live in the Keychain, never the backup — a file from
-            // another device restores the data but not the connection.
-            statusMessage = "Restored \(info.transactions) transactions. If this backup came from another device, add your SimpleFIN connection again to resume syncing."
+            statusMessage = "Restored \(info.transactions) transactions." + reconnectHint
         } catch {
             statusMessage = Self.message(error)
         }
+    }
+
+    /// Load the confirmed backup as a new profile and switch to it. The
+    /// current profile is untouched.
+    public func openPendingAsProfile(name: String, kind: ProfileKind) async {
+        guard let pending = pendingRestore else { return }
+        pendingRestore = nil
+        defer { try? FileManager.default.removeItem(at: pending.url) }
+        do {
+            let made = try await core.importProfile(from: pending.url, name: name, kind: kind)
+            await switchProfile(to: made.id)
+            statusMessage = "Opened “\(made.name)” with \(pending.info.transactions) transactions." + reconnectHint
+        } catch {
+            statusMessage = Self.message(error)
+        }
+    }
+
+    /// Secrets live in the Keychain, never the backup — so a file from another
+    /// device brings the data but not a working connection. Say so only when
+    /// that's actually the case.
+    private var reconnectHint: String {
+        connections.contains { $0.state == .missingCredential }
+            ? " Its SimpleFIN connection isn’t linked on this device — reconnect it in Settings to resume syncing."
+            : ""
     }
 
     public func undoRestore() async {
@@ -454,19 +611,22 @@ public final class AppModel {
         (error as? LocalizedError)?.errorDescription ?? "\(error)"
     }
 
-    private static func databasePath() throws -> String {
-        let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                               appropriateFor: nil, create: true)
+    /// `Application Support/TrackTheMoney/` — holds `profiles.json` and one
+    /// folder per profile (and, on a pre-profiles install, the legacy `ttm.db`
+    /// that LocalCore adopts on first launch).
+    private static func storeRoot() throws -> URL {
+        let fm = FileManager.default
+        let base = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                              appropriateFor: nil, create: true)
             .appendingPathComponent("TrackTheMoney", isDirectory: true)
-        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        let url = base.appendingPathComponent("ttm.db")
-        // UI tests pass -resetStore so each launch starts from a clean DB (the app
-        // container persists across launches in one test run otherwise).
+        // UI tests pass -resetStore so each launch starts clean (the app
+        // container persists across launches in one test run otherwise). Wipes
+        // every profile, the registry, and any legacy store. Keychain items are
+        // left alone; unreferenced ones are inert.
         if ProcessInfo.processInfo.arguments.contains("-resetStore") {
-            for suffix in ["", "-wal", "-shm"] {
-                try? FileManager.default.removeItem(at: base.appendingPathComponent("ttm.db\(suffix)"))
-            }
+            try? fm.removeItem(at: base)
         }
-        return url.path
+        try fm.createDirectory(at: base, withIntermediateDirectories: true)
+        return base
     }
 }

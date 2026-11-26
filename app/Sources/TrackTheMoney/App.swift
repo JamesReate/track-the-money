@@ -23,6 +23,27 @@ struct RootView: View {
     @State private var selection = "networth"
 
     var body: some View {
+        // Always-visible guard against mistaking test data for real accounts.
+        // Stacked above the TabView (not a safeAreaInset on it): iOS 26's
+        // floating nav bars draw under an inset and the banner covered them.
+        VStack(spacing: 0) {
+            if let profile = model.activeProfile, profile.kind == .test {
+                TestProfileBanner(profile: profile)
+            }
+            tabs
+        }
+        .task {
+            let args = ProcessInfo.processInfo.arguments
+            if let i = args.firstIndex(of: "-tab"), i + 1 < args.count { selection = args[i + 1] }
+            if let i = args.firstIndex(of: "-profile"), i + 1 < args.count {
+                await model.applyLaunchProfile(named: args[i + 1])
+            }
+            if args.contains("-sampleData") { await model.loadSampleData() }
+            await model.refresh()
+        }
+    }
+
+    private var tabs: some View {
         TabView(selection: $selection) {
             NetWorthView(model: model)
                 .tabItem { Label("Net Worth", systemImage: "chart.line.uptrend.xyaxis") }.tag("networth")
@@ -44,11 +65,5 @@ struct RootView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }.tag("settings")
         }
         .tint(Brand.evergreen)
-        .task {
-            let args = ProcessInfo.processInfo.arguments
-            if let i = args.firstIndex(of: "-tab"), i + 1 < args.count { selection = args[i + 1] }
-            if args.contains("-sampleData") { await model.loadSampleData() }
-            await model.refresh()
-        }
     }
 }
