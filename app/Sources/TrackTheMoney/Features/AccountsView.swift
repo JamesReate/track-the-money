@@ -318,31 +318,32 @@ struct InterestRateSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    HStack {
-                        TextField("e.g. 22.99", text: $text)
-                            #if os(iOS)
-                            .keyboardType(.decimalPad)
-                            #endif
-                            .accessibilityIdentifier("aprField")
-                        Text("% APR").foregroundStyle(Brand.slate)
-                    }
+                    PercentField(title: "APR", prompt: isCard ? "22.99" : "6.5", text: $text, id: "aprField")
                 } header: { Eyebrow(isCard ? "Regular rate" : "Interest rate") }
                 footer: { Text("The rate on your latest statement. Update it when it changes.") }
                 if isCard { promotion }
                 if account.aprBps != nil {
-                    Button("Remove regular rate", role: .destructive) {
-                        Task {
-                            error = await model.setAPR(accountId: account.id, aprBps: nil)
-                            if error == nil { dismiss() }
+                    Section {
+                        Button("Remove regular rate", role: .destructive) {
+                            Task {
+                                error = await model.setAPR(accountId: account.id, aprBps: nil)
+                                if error == nil { dismiss() }
+                            }
                         }
                     }
                 }
                 if let error {
-                    Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(Brand.clay)
+                    Section {
+                        Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(Brand.clay)
+                    }
                 }
             }
+            .formStyle(.grouped)   // macOS: labelled rows instead of the cramped two-column default
             .statementBackground()
             .inlineNavTitle(account.name)
+            #if os(macOS)
+            .frame(minWidth: 440, minHeight: isCard ? 340 : 170)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -369,14 +370,7 @@ struct InterestRateSheet: View {
                 .tint(Brand.evergreen)
                 .accessibilityIdentifier("promoToggle")
             if hasPromo {
-                HStack {
-                    TextField("e.g. 0", text: $promoText)
-                        #if os(iOS)
-                        .keyboardType(.decimalPad)
-                        #endif
-                        .accessibilityIdentifier("promoField")
-                    Text("% APR").foregroundStyle(Brand.slate)
-                }
+                PercentField(title: "Promo APR", prompt: "0", text: $promoText, id: "promoField")
                 DatePicker("Ends", selection: $promoEnds, in: Calendar.current.startOfDay(for: Date())...,
                            displayedComponents: .date)
                     .accessibilityIdentifier("promoEnds")
@@ -401,6 +395,32 @@ struct InterestRateSheet: View {
                                              endsOn: hasPromo ? promoEnds : nil)
             }
             if error == nil { dismiss() }
+        }
+    }
+}
+
+/// A labelled percentage input: the label on the left, a short right-aligned
+/// field and "%" on the right, on both platforms.
+private struct PercentField: View {
+    let title: String
+    let prompt: String
+    @Binding var text: String
+    let id: String
+
+    var body: some View {
+        LabeledContent(title) {
+            HStack(spacing: 4) {
+                TextField(title, text: $text, prompt: Text(prompt))
+                    .labelsHidden()
+                    .multilineTextAlignment(.trailing)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    #else
+                    .frame(width: 80)
+                    #endif
+                    .accessibilityIdentifier(id)
+                Text("%").foregroundStyle(Brand.slate)
+            }
         }
     }
 }
