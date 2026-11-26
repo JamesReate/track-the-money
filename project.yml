@@ -34,6 +34,10 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Track The Money
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.finance"
+        # Without a launch-screen entry the iOS 26+ SDK runs the app in a
+        # 320x480 legacy-compatibility window (letterboxed, rows under the tab
+        # bar). An empty generated UILaunchScreen opts into full-screen layout.
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
         SWIFT_VERSION: "5.0"
         CODE_SIGN_STYLE: Automatic
         ENABLE_PREVIEWS: YES
