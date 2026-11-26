@@ -37,6 +37,7 @@ decided and why. New feature plans go here as `<FEATURE>_PLAN.md`.
 | [PROFILES_PLAN.md](plans/PROFILES_PLAN.md) | ✅ Shipped — switchable profiles, open a backup as a profile, per-profile connection status. |
 | [ACCOUNT_MANAGEMENT_PLAN.md](plans/ACCOUNT_MANAGEMENT_PLAN.md) | ✅ Shipped — delete accounts, manually tracked accounts, credit-card class, interest rates on debts, excluded and paused accounts. |
 | [PROMO_APR_PLAN.md](plans/PROMO_APR_PLAN.md) | ✅ Shipped (first cut) — credit-card promo rates with an end date; can cash clear them in time. |
+| [AGENT_ACCESS_PLAN.md](plans/AGENT_ACCESS_PLAN.md) | 📝 Planned — `ttm` CLI + local MCP server: read-only SQL over curated views for Claude or any MCP client. |
 
 ## Elsewhere in the repo
 

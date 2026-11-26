@@ -167,6 +167,9 @@ Swift 6.3 toolchain.
 4. Local CSV/JSON export (deferred by D7a in DATA_PORTABILITY_PLAN; backup/restore shipped).
 5. **Milestone 2** — paid cloud (`track-the-money-cloud`): Go relay + AI proxy +
    auth/billing; device-side `Crypto` (HPKE/CryptoKit) + `SyncClient`.
+6. **Agent access** (planned, not started) — `ttm` CLI + `ttm mcp` local MCP
+   server on TTMCore: read-only SQL over curated views plus computed tools.
+   See `docs/plans/AGENT_ACCESS_PLAN.md`.
 
 > Note: headless iOS Simulator screen capture went black mid-session (GPU/display
 > state — app process confirmed running, no crash); Net Worth + Accounts shots

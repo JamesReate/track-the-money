@@ -58,6 +58,8 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
     credit-card class, APR on debts, excluded/paused accounts; shipped.
   - `PROMO_APR_PLAN.md` — credit-card promo rates + payoff outlook; first cut
     shipped, §5 lists what to think about next.
+  - `AGENT_ACCESS_PLAN.md` — `ttm` CLI + local MCP server (read-only SQL over
+    curated temp views, opt-in per profile); planned, not started.
 
 ## Architecture rules (do not break)
 
