@@ -62,6 +62,9 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
     shipped, §5 lists what to think about next.
   - `EXPECTED_EXPENSES_PLAN.md` — This Month: big recurring bills expected,
     knocked off as they arrive; first cut shipped, §5 is the road to budgets.
+  - `MONTHLY_BUDGET_DESIGN.html` — design mock (open in a browser) for the
+    monthly budget: category plans, splurge room, "Can I afford it?"; the
+    plan doc is still to be written.
   - `AGENT_ACCESS_PLAN.md` — `ttm` CLI + local MCP server (read-only SQL over
     curated temp views, opt-in per profile); planned, not started.
 

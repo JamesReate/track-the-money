@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monthly Budget Design</title>
+<!-- Design mock for the monthly budget (This Month grows into the plan).
+     Exported from the design canvas on 2026-11-26. Mock numbers, dated Nov 14. -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Newsreader:opsz,wght@6..72,600&amp;display=swap" rel="stylesheet">
+<style>
+:root { --paper:#E9ECE7; --ink:#16211C; --muted:#5F6963; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--paper); color:var(--ink); font-family:Inter,-apple-system,system-ui,sans-serif; }
+header { max-width:1280px; margin:0 auto; padding:32px 16px 8px; }
+header h1 { font-family:Newsreader,'New York',Georgia,serif; font-size:34px; margin:0 0 6px; }
+header p { margin:0; color:var(--muted); font-size:15px; line-height:1.5; max-width:760px; }
+.notes { max-width:1280px; margin:20px auto 0; padding:0 16px; display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
+.note { border-radius:14px; padding:16px 18px; }
+.note h3 { margin:0 0 8px; font-size:15px; }
+.note pre { margin:0; white-space:pre-wrap; font:13px/1.55 Inter,-apple-system,system-ui,sans-serif; }
+.green { background:#DCEBDF; } .blue { background:#DCE6EE; } .orange { background:#F4E3D2; }
+.screens { max-width:1280px; margin:0 auto; padding:24px 16px 48px; display:flex; flex-wrap:wrap; gap:28px; align-items:flex-start; }
+.screen { margin:0; display:flex; flex-direction:column; gap:10px; max-width:100%; }
+.screen.wide { width:100%; }
+figcaption { font-size:13px; font-weight:600; color:var(--muted); letter-spacing:.3px; }
+.frame { border-radius:28px; overflow:auto; box-shadow:0 1px 2px rgba(0,0,0,.06),0 8px 28px rgba(22,33,28,.12); max-width:100%; background:#F4F6F2; }
+.wide .frame { border-radius:14px; }
+a { color:#1E4D3A; }
+input:focus { outline:2px solid #1E4D3A; outline-offset:2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Monthly budget: This Month grows into the plan</h1>
+  <p>Design mock for the monthly budget, the next step after expected expenses. All figures are illustrative and dated Nov 14 (day 14 of 30). The bills match the demo data; income assumes two $4,800 paychecks and a $500 savings goal. The “Can I afford it?” screen works: type an amount or pick a preset.</p>
+</header>
+<div class="notes">
+<div class="note green"><h3>How the numbers work</h3><pre>Income expected (recurring inflows, like bills)
+− Big bills (expected expenses, shipped)
+− Savings goal (you set it)
+= Everyday budget
+
+Everyday budget − category plans = Splurge room
+Everyday budget − spent so far = Left this month
+
+Pace = plan × days gone ÷ days in month.</pre></div>
+<div class="note blue"><h3>Defaults, so it works on day one</h3><pre>• Each category's plan starts at its median month over the last 3, leaving out the big bills.
+• Income = recurring inflows detected like bills (payroll).
+• Savings goal starts at $0 until you set it.
+• Everything not planned falls into 'Everything else'.</pre></div>
+<div class="note orange"><h3>Open questions</h3><pre>1. Calendar month or pay cycle?
+2. Carry unspent plan into next month?
+3. Credit-card spending counts when charged (not when the card is paid) — confirm.
+4. Should splurge-check purchases be saved as planned, so the room shrinks?
+5. Income that hasn't landed yet: count it, or only what's in?</pre></div>
+</div>
+<div class="screens">
+<figure class="screen" id="screen-main"><figcaption>This Month — iPhone</figcaption><div class="frame" data-screen="main"></div></figure>
+<figure class="screen" id="screen-afford"><figcaption>Can I afford it? — iPhone (interactive)</figcaption><div class="frame" data-screen="afford"></div></figure>
+<figure class="screen" id="screen-plan"><figcaption>Category plan — iPhone</figcaption><div class="frame" data-screen="plan"></div></figure>
+<figure class="screen wide" id="screen-mac"><figcaption>This Month — Mac</figcaption><div class="frame" data-screen="mac"></div></figure>
+</div>
+<script type="text/x-template" id="tpl-main">
+<div style="width: 390px; min-height: 1640px; box-sizing: border-box; background: #F4F6F2; font-family: Inter, -apple-system, system-ui, sans-serif; color: #16211C; padding: 0 16px 120px; display: flex; flex-direction: column; gap: 18px">
+
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 58px 4px 0">
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <h1 style="margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.3px">This Month</h1>
+      <p style="margin: 0; font-size: 14px; color: #5F6963">November · day 14, 16 days left</p>
+    </div>
+    <button aria-label="Budget options" style="width: 44px; height: 44px; border-radius: 22px; border: 1px solid rgba(22,33,28,0.10); background: #FCFDFB; display: flex; align-items: center; justify-content: center; cursor: pointer">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1E4D3A" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+    </button>
+  </div>
+
+  <section style="background: #FCFDFB; border-radius: 22px; padding: 22px 20px; display: flex; flex-direction: column; gap: 16px; border: 1px solid rgba(22,33,28,0.06)">
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <span style="font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">LEFT THIS MONTH</span>
+      <span style="font-family: Newsreader, 'New York', Georgia, serif; font-size: 46px; font-weight: 600; letter-spacing: -0.5px; line-height: 1.05">$2,785</span>
+      <span style="font-size: 14px; color: #5F6963">About $174 a day for the next 16 days</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div role="img" aria-label="November split: big bills 52%, savings 5%, spent 14%, planned still to spend 10%, splurge room 19%" style="display: flex; height: 14px; border-radius: 7px; overflow: hidden; gap: 2px">
+        <div style="width: 51.5%; background: #B0533C"></div>
+        <div style="width: 5.2%; background: #9A7B3F"></div>
+        <div style="width: 14.2%; background: #16211C"></div>
+        <div style="width: 9.7%; background: #6E9483"></div>
+        <div style="width: 19.4%; background: #CFE0D6"></div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; font-size: 12px; color: #4A544E">
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 2px; background: #B0533C"></span>Big bills $4,948</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 2px; background: #9A7B3F"></span>Savings $500</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 2px; background: #16211C"></span>Spent $1,367</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 2px; background: #6E9483"></span>Planned, to spend $934</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 2px; background: #CFE0D6; border: 1px solid rgba(22,33,28,0.15)"></span>Splurge room $1,851</span>
+        <span style="display: flex; align-items: center; gap: 6px; color: #5F6963">of $9,600 income</span>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; background: #EEF4F0; border-radius: 14px; padding: 12px 14px">
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <span style="font-size: 13px; color: #4A544E">Splurge room</span>
+        <span style="font-size: 20px; font-weight: 600; color: #1E4D3A">$1,851</span>
+      </div>
+      <a href="#screen-afford" style="text-decoration: none; background: #1E4D3A; color: #FFFFFF; font-size: 15px; font-weight: 600; padding: 12px 16px; border-radius: 12px; min-height: 44px; box-sizing: border-box; display: flex; align-items: center">Can I afford…?</a>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; align-items: baseline; justify-content: space-between; padding: 0 4px">
+      <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">EVERYDAY SPENDING</h2>
+      <span style="font-size: 12px; color: #5F6963">plan · tick = pace today</span>
+    </div>
+    <div style="background: #FCFDFB; border-radius: 18px; border: 1px solid rgba(22,33,28,0.06); display: flex; flex-direction: column">
+      <sc-for list="{{ categories }}" as="c" hint-placeholder-count="10">
+        <a href="#screen-plan" style="text-decoration: none; color: #16211C; display: flex; flex-direction: column; gap: 7px; padding: 13px 16px; border-bottom: 1px solid rgba(22,33,28,0.07)">
+          <div style="display: flex; align-items: baseline; gap: 8px">
+            <span style="width: 10px; height: 10px; border-radius: 5px; background: {{ c.color }}; flex-shrink: 0; align-self: center"></span>
+            <span style="font-size: 16px; flex-grow: 1">{{ c.name }}</span>
+            <span style="font-size: 15px; font-variant-numeric: tabular-nums">{{ c.spentText }}</span>
+            <span style="font-size: 13px; color: #5F6963; font-variant-numeric: tabular-nums">/ {{ c.planText }}</span>
+          </div>
+          <div style="position: relative; height: 6px; border-radius: 3px; background: rgba(22,33,28,0.08)">
+            <div style="position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; width: {{ c.fill }}; background: {{ c.barColor }}"></div>
+            <div style="position: absolute; top: -3px; bottom: -3px; width: 2px; left: 46.7%; background: #16211C; opacity: 0.55"></div>
+          </div>
+          <span style="font-size: 12px; color: {{ c.noteColor }}">{{ c.note }}</span>
+        </a>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 8px">
+    <h2 style="margin: 0; padding: 0 4px; font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">BIG BILLS</h2>
+    <div style="background: #FCFDFB; border-radius: 18px; border: 1px solid rgba(22,33,28,0.06); padding: 14px 16px; display: flex; align-items: center; gap: 12px">
+      <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px">
+        <span style="font-size: 16px">$3,048 paid · $1,900 to come</span>
+        <span style="font-size: 12px; color: #5F6963">Next: Bright Horizons, around Nov 17</span>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5F6963" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 8px">
+    <h2 style="margin: 0; padding: 0 4px; font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">INCOME</h2>
+    <div style="background: #FCFDFB; border-radius: 18px; border: 1px solid rgba(22,33,28,0.06); display: flex; flex-direction: column">
+      <div style="padding: 13px 16px; display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid rgba(22,33,28,0.07)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1E4D3A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="align-self: center"><path d="M5 12l5 5 9-10"/></svg>
+        <span style="flex-grow: 1; font-size: 16px; color: #4A544E">Payroll — Acme Inc</span>
+        <span style="font-size: 15px; color: #4A544E">$4,800</span>
+        <span style="font-size: 12px; color: #5F6963">Nov 1</span>
+      </div>
+      <div style="padding: 13px 16px; display: flex; align-items: baseline; gap: 10px">
+        <span style="width: 16px; height: 16px; border-radius: 8px; border: 1.5px dashed #6E9483; box-sizing: border-box; align-self: center"></span>
+        <span style="flex-grow: 1; font-size: 16px">Payroll — Acme Inc</span>
+        <span style="font-size: 15px">$4,800</span>
+        <span style="font-size: 12px; color: #5F6963">~Nov 15</span>
+      </div>
+    </div>
+  </section>
+
+</div>
+</script>
+<script type="text/x-template" id="tpl-afford">
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #DCE1DB; font-family: Inter, -apple-system, system-ui, sans-serif; color: #16211C; display: flex; flex-direction: column; justify-content: flex-end">
+  <div style="background: #F4F6F2; border-radius: 26px 26px 0 0; padding: 10px 20px 34px; display: flex; flex-direction: column; gap: 20px; height: 780px; box-sizing: border-box">
+    <div style="align-self: center; width: 38px; height: 5px; border-radius: 3px; background: rgba(22,33,28,0.2)"></div>
+
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <h1 style="margin: 0; font-size: 24px; font-weight: 600">Can I afford it?</h1>
+        <p style="margin: 0; font-size: 14px; color: #5F6963">Splurge room this month: <strong style="color: #1E4D3A">$1,851</strong></p>
+      </div>
+      <a href="#screen-main" style="text-decoration: none; font-size: 16px; font-weight: 600; color: #1E4D3A; min-height: 44px; display: flex; align-items: center">Done</a>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <label for="amount" style="font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">HOW MUCH</label>
+      <div style="display: flex; align-items: center; gap: 4px; background: #FCFDFB; border: 1px solid rgba(22,33,28,0.12); border-radius: 14px; padding: 6px 16px">
+        <span style="font-family: Newsreader, 'New York', Georgia, serif; font-size: 38px; font-weight: 600; color: #5F6963">$</span>
+        <input id="amount" type="text" inputmode="decimal" value="{{ amountText }}" oninput="{{ onAmount }}" style="border: 0; background: transparent; font-family: Newsreader, 'New York', Georgia, serif; font-size: 38px; font-weight: 600; color: #16211C; width: 100%; padding: 4px 0">
+      </div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap">
+        <sc-for list="{{ presets }}" as="p" hint-placeholder-count="4">
+          <button aria-pressed="{{ p.pressed }}" onClick="{{ p.pick }}" style="min-height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid rgba(22,33,28,0.12); font-family: inherit; font-size: 15px; cursor: pointer; background: {{ p.bg }}; color: {{ p.fg }}">{{ p.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <span style="font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">FOR</span>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+        <sc-for list="{{ kinds }}" as="k" hint-placeholder-count="3">
+          <button aria-pressed="{{ k.pressed }}" onClick="{{ k.pick }}" style="min-height: 64px; border-radius: 14px; border: 1px solid {{ k.border }}; background: {{ k.bg }}; font-family: inherit; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #16211C">
+            <span style="font-size: 15px; font-weight: 600">{{ k.label }}</span>
+            <span style="font-size: 12px; color: #5F6963">{{ k.hint }}</span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div role="status" style="border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 8px; background: {{ verdict.bg }}">
+      <span style="font-family: Newsreader, 'New York', Georgia, serif; font-size: 26px; font-weight: 600; color: {{ verdict.fg }}">{{ verdict.title }}</span>
+      <span style="font-size: 15px; line-height: 1.45; color: #2D3832">{{ verdict.body }}</span>
+      <div role="img" aria-label="{{ verdict.barLabel }}" style="display: flex; height: 10px; border-radius: 5px; overflow: hidden; gap: 2px; background: rgba(22,33,28,0.06); margin-top: 4px">
+        <div style="width: {{ verdict.planW }}; background: #586E5A"></div>
+        <div style="width: {{ verdict.roomW }}; background: #1E4D3A"></div>
+        <div style="width: {{ verdict.saveW }}; background: #9A7B3F"></div>
+        <div style="width: {{ verdict.overW }}; background: #B0533C"></div>
+      </div>
+      <span style="font-size: 12px; color: #4A544E">{{ verdict.legend }}</span>
+    </div>
+
+    <div style="display: flex; gap: 10px; margin-top: auto">
+      <button style="flex: 1; min-height: 50px; border-radius: 14px; border: 1px solid rgba(22,33,28,0.15); background: #FCFDFB; font-family: inherit; font-size: 16px; font-weight: 600; color: #16211C; cursor: pointer">Just checking</button>
+      <button style="flex: 1; min-height: 50px; border-radius: 14px; border: 0; background: #1E4D3A; font-family: inherit; font-size: 16px; font-weight: 600; color: #FFFFFF; cursor: pointer">Plan it this month</button>
+    </div>
+  </div>
+</div>
+</script>
+<script type="text/x-template" id="tpl-plan">
+<div style="width: 390px; min-height: 1100px; box-sizing: border-box; background: #F4F6F2; font-family: Inter, -apple-system, system-ui, sans-serif; color: #16211C; padding: 54px 16px 60px; display: flex; flex-direction: column; gap: 18px">
+
+  <a href="#screen-main" style="text-decoration: none; color: #1E4D3A; font-size: 16px; font-weight: 500; display: flex; align-items: center; gap: 4px; min-height: 44px; align-self: flex-start">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E4D3A" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+    This Month
+  </a>
+
+  <section style="background: #FCFDFB; border-radius: 22px; border: 1px solid rgba(22,33,28,0.06); padding: 20px; display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #586E5A"></span>
+      <h1 style="margin: 0; font-size: 22px; font-weight: 600">Going Out</h1>
+    </div>
+    <div style="display: flex; align-items: baseline; gap: 8px">
+      <span style="font-family: Newsreader, 'New York', Georgia, serif; font-size: 42px; font-weight: 600">$186</span>
+      <span style="font-size: 17px; color: #5F6963">of $300</span>
+    </div>
+    <div style="position: relative; height: 8px; border-radius: 4px; background: rgba(22,33,28,0.08)">
+      <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 62%; border-radius: 4px; background: #B0533C"></div>
+      <div style="position: absolute; top: -4px; bottom: -4px; left: 46.7%; width: 2px; background: #16211C; opacity: 0.55"></div>
+    </div>
+    <p style="margin: 0; font-size: 14px; color: #9C4632">$46 ahead of pace · $114 left for 16 days</p>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 8px">
+    <h2 style="margin: 0; padding: 0 4px; font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">PLAN FOR NOVEMBER</h2>
+    <div style="background: #FCFDFB; border-radius: 18px; border: 1px solid rgba(22,33,28,0.06); padding: 16px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <button aria-label="Lower the plan by $10" style="width: 44px; height: 44px; border-radius: 22px; border: 1px solid rgba(22,33,28,0.15); background: #F4F6F2; font-size: 22px; color: #1E4D3A; cursor: pointer; font-family: inherit">−</button>
+        <span style="font-family: Newsreader, 'New York', Georgia, serif; font-size: 34px; font-weight: 600">$300</span>
+        <button aria-label="Raise the plan by $10" style="width: 44px; height: 44px; border-radius: 22px; border: 1px solid rgba(22,33,28,0.15); background: #F4F6F2; font-size: 22px; color: #1E4D3A; cursor: pointer; font-family: inherit">+</button>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid rgba(22,33,28,0.07); padding-top: 12px">
+        <span style="font-size: 13px; color: #4A544E; line-height: 1.4">Your typical month is <strong>$310</strong> (middle of Aug–Oct).</span>
+        <button style="min-height: 44px; padding: 0 14px; border-radius: 12px; border: 0; background: #E4EEE8; color: #1E4D3A; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap">Use $310</button>
+      </div>
+      <p style="margin: 0; font-size: 12px; color: #5F6963">Raising it takes from splurge room ($1,851), never from bills or savings.</p>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 8px">
+    <h2 style="margin: 0; padding: 0 4px; font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">LAST THREE MONTHS</h2>
+    <div style="background: #FCFDFB; border-radius: 18px; border: 1px solid rgba(22,33,28,0.06); padding: 18px 16px 14px">
+      <div role="img" aria-label="Going Out: August $280, September $340, October $310, November so far $186; plan $300" style="position: relative; height: 150px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; align-items: end">
+        <div style="position: absolute; left: 0; right: 0; bottom: 116px; border-top: 1.5px dashed #9A7B3F"></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><span style="font-size: 12px; color: #4A544E">$280</span><div style="width: 100%; height: 108px; border-radius: 6px 6px 2px 2px; background: #586E5A"></div></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><span style="font-size: 12px; color: #4A544E">$340</span><div style="width: 100%; height: 131px; border-radius: 6px 6px 2px 2px; background: #586E5A"></div></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><span style="font-size: 12px; color: #4A544E">$310</span><div style="width: 100%; height: 120px; border-radius: 6px 6px 2px 2px; background: #586E5A"></div></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><span style="font-size: 12px; color: #4A544E">$186</span><div style="width: 100%; height: 72px; border-radius: 6px 6px 2px 2px; background: #A9BFB1"></div></div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 6px; font-size: 12px; color: #5F6963; text-align: center">
+        <span>Aug</span><span>Sep</span><span>Oct</span><span>Nov so far</span>
+      </div>
+      <p style="margin: 10px 0 0; font-size: 12px; color: #5F6963; display: flex; align-items: center; gap: 6px"><span style="width: 16px; border-top: 1.5px dashed #9A7B3F"></span>Plan, $300</p>
+    </div>
+  </section>
+
+  <section style="background: #FCFDFB; border-radius: 18px; border: 1px solid rgba(22,33,28,0.06); padding: 14px 16px; display: flex; align-items: center; gap: 12px">
+    <label for="carry" style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 16px">Carry what's left into December</span>
+      <span style="font-size: 12px; color: #5F6963">Open question: on, $114 would join next month's plan</span>
+    </label>
+    <input id="carry" type="checkbox" role="switch" style="width: 44px; height: 26px; accent-color: #1E4D3A">
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 8px">
+    <h2 style="margin: 0; padding: 0 4px; font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">THIS MONTH</h2>
+    <div style="background: #FCFDFB; border-radius: 18px; border: 1px solid rgba(22,33,28,0.06); display: flex; flex-direction: column">
+      <div style="padding: 13px 16px; display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid rgba(22,33,28,0.07)"><span style="flex-grow: 1; font-size: 15px">BAR CENTRO</span><span style="font-size: 12px; color: #5F6963">Nov 12</span><span style="font-size: 15px; width: 56px; text-align: right">$48</span></div>
+      <div style="padding: 13px 16px; display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid rgba(22,33,28,0.07)"><span style="flex-grow: 1; font-size: 15px">AMC THEATRES</span><span style="font-size: 12px; color: #5F6963">Nov 9</span><span style="font-size: 15px; width: 56px; text-align: right">$36</span></div>
+      <div style="padding: 13px 16px; display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid rgba(22,33,28,0.07)"><span style="flex-grow: 1; font-size: 15px">THE ROSE ROOM</span><span style="font-size: 12px; color: #5F6963">Nov 7</span><span style="font-size: 15px; width: 56px; text-align: right">$62</span></div>
+      <div style="padding: 13px 16px; display: flex; align-items: baseline; gap: 10px"><span style="flex-grow: 1; font-size: 15px">BOWLERO</span><span style="font-size: 12px; color: #5F6963">Nov 2</span><span style="font-size: 15px; width: 56px; text-align: right">$40</span></div>
+    </div>
+  </section>
+
+</div>
+</script>
+<script type="text/x-template" id="tpl-mac">
+<div style="width: 100%; min-height: 940px; box-sizing: border-box; background: #F4F6F2; font-family: Inter, -apple-system, system-ui, sans-serif; color: #16211C; display: flex; flex-direction: column">
+
+  <nav aria-label="Sections" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; padding: 14px 16px; border-bottom: 1px solid rgba(22,33,28,0.08); background: #FCFDFB">
+    <span style="padding: 6px 12px; border-radius: 8px; font-size: 13px; color: #4A544E">Net Worth</span>
+    <span style="padding: 6px 12px; border-radius: 8px; font-size: 13px; color: #4A544E">Accounts</span>
+    <span style="padding: 6px 12px; border-radius: 8px; font-size: 13px; color: #4A544E">Transactions</span>
+    <span style="padding: 6px 12px; border-radius: 8px; font-size: 13px; color: #4A544E">Spending</span>
+    <span aria-current="page" style="padding: 6px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #FFFFFF; background: #1E4D3A">This Month</span>
+    <span style="padding: 6px 12px; border-radius: 8px; font-size: 13px; color: #4A544E">Categories</span>
+    <span style="padding: 6px 12px; border-radius: 8px; font-size: 13px; color: #4A544E">Rules</span>
+    <span style="padding: 6px 12px; border-radius: 8px; font-size: 13px; color: #4A544E">Real Estate</span>
+    <span style="padding: 6px 12px; border-radius: 8px; font-size: 13px; color: #4A544E">Debt</span>
+    <span style="padding: 6px 12px; border-radius: 8px; font-size: 13px; color: #4A544E">Settings</span>
+  </nav>
+
+  <main style="width: 100%; max-width: 1180px; margin: 0 auto; box-sizing: border-box; padding: 28px 24px 48px; display: flex; flex-direction: column; gap: 22px">
+
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <h1 style="margin: 0; font-size: 28px; font-weight: 600">This Month</h1>
+        <p style="margin: 0; font-size: 14px; color: #5F6963">November · day 14, 16 days left</p>
+      </div>
+      <a href="#screen-afford" style="text-decoration: none; background: #1E4D3A; color: #FFFFFF; font-size: 14px; font-weight: 600; padding: 0 16px; min-height: 40px; border-radius: 10px; display: flex; align-items: center">Can I afford…?</a>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-start">
+
+      <div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 22px">
+
+        <section style="background: #FCFDFB; border-radius: 18px; border: 1px solid rgba(22,33,28,0.07); padding: 22px; display: flex; flex-wrap: wrap; gap: 28px">
+          <div style="flex: 1 1 240px; display: flex; flex-direction: column; gap: 6px">
+            <span style="font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">LEFT THIS MONTH</span>
+            <span style="font-family: Newsreader, 'New York', Georgia, serif; font-size: 52px; font-weight: 600; line-height: 1.05">$2,785</span>
+            <span style="font-size: 14px; color: #5F6963">About $174 a day for 16 days</span>
+            <div style="margin-top: 10px; background: #EEF4F0; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px">
+              <span style="font-size: 13px; color: #4A544E">Splurge room</span>
+              <span style="font-size: 22px; font-weight: 600; color: #1E4D3A">$1,851</span>
+              <span style="font-size: 12px; color: #4A544E">Unplanned money after bills, savings and every category's plan.</span>
+            </div>
+          </div>
+          <table style="flex: 1 1 280px; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums">
+            <caption style="text-align: left; font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963; padding-bottom: 8px">HOW IT ADDS UP</caption>
+            <tbody>
+              <tr><td style="padding: 7px 0">Income expected</td><td style="padding: 7px 0; text-align: right">$9,600</td></tr>
+              <tr><td style="padding: 7px 0; color: #9C4632">− Big bills</td><td style="padding: 7px 0; text-align: right; color: #9C4632">$4,948</td></tr>
+              <tr><td style="padding: 7px 0; color: #6B5223">− Savings goal</td><td style="padding: 7px 0; text-align: right; color: #6B5223">$500</td></tr>
+              <tr style="border-top: 1px solid rgba(22,33,28,0.12)"><td style="padding: 9px 0; font-weight: 600">Everyday budget</td><td style="padding: 9px 0; text-align: right; font-weight: 600">$4,152</td></tr>
+              <tr><td style="padding: 7px 0">− Spent so far</td><td style="padding: 7px 0; text-align: right">$1,367</td></tr>
+              <tr style="border-top: 1px solid rgba(22,33,28,0.12)"><td style="padding: 9px 0; font-weight: 600; color: #1E4D3A">Left this month</td><td style="padding: 9px 0; text-align: right; font-weight: 600; color: #1E4D3A">$2,785</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section style="background: #FCFDFB; border-radius: 18px; border: 1px solid rgba(22,33,28,0.07); padding: 6px 0 8px">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; padding: 14px 22px 6px">
+            <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">EVERYDAY SPENDING</h2>
+            <span style="font-size: 12px; color: #5F6963">tick = where pace says you'd be today</span>
+          </div>
+          <div style="overflow-x: auto">
+            <table style="width: 100%; min-width: 560px; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums">
+              <thead>
+                <tr style="color: #5F6963; font-size: 12px; text-align: left">
+                  <th scope="col" style="padding: 8px 22px; font-weight: 500">Category</th>
+                  <th scope="col" style="padding: 8px 8px; font-weight: 500; text-align: right">Spent</th>
+                  <th scope="col" style="padding: 8px 8px; font-weight: 500; text-align: right">Plan</th>
+                  <th scope="col" style="padding: 8px 8px; font-weight: 500; width: 34%">Progress</th>
+                  <th scope="col" style="padding: 8px 22px 8px 8px; font-weight: 500; text-align: right">Left</th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ categories }}" as="c" hint-placeholder-count="10">
+                  <tr style="border-top: 1px solid rgba(22,33,28,0.07)">
+                    <td style="padding: 11px 22px"><span style="display: inline-block; width: 9px; height: 9px; border-radius: 5px; background: {{ c.color }}; margin-right: 8px"></span>{{ c.name }}</td>
+                    <td style="padding: 11px 8px; text-align: right">{{ c.spentText }}</td>
+                    <td style="padding: 11px 8px; text-align: right; color: #5F6963">{{ c.planText }}</td>
+                    <td style="padding: 11px 8px">
+                      <div style="position: relative; height: 6px; border-radius: 3px; background: rgba(22,33,28,0.08)">
+                        <div style="position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; width: {{ c.fill }}; background: {{ c.barColor }}"></div>
+                        <div style="position: absolute; top: -3px; bottom: -3px; left: 46.7%; width: 2px; background: #16211C; opacity: 0.55"></div>
+                      </div>
+                    </td>
+                    <td style="padding: 11px 22px 11px 8px; text-align: right; color: {{ c.noteColor }}">{{ c.leftText }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <aside style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 22px">
+        <section style="background: #FCFDFB; border-radius: 18px; border: 1px solid rgba(22,33,28,0.07); padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+          <div style="display: flex; align-items: baseline; justify-content: space-between">
+            <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">BIG BILLS</h2>
+            <span style="font-size: 13px; color: #4A544E">$1,900 to come</span>
+          </div>
+          <div style="display: flex; align-items: baseline; gap: 10px"><span style="width: 9px; height: 9px; border-radius: 5px; background: #8C7A4E; align-self: center"></span><span style="flex-grow: 1">Bright Horizons</span><span style="font-size: 12px; color: #5F6963">~Nov 17</span><span>$1,650</span></div>
+          <div style="display: flex; align-items: baseline; gap: 10px"><span style="width: 9px; height: 9px; border-radius: 5px; background: #4C6B5B; align-self: center"></span><span style="flex-grow: 1">Smile Orthodontics</span><span style="font-size: 12px; color: #5F6963">~Nov 22</span><span>$250</span></div>
+          <div style="border-top: 1px solid rgba(22,33,28,0.08); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; color: #4A544E; font-size: 14px">
+            <div style="display: flex; gap: 10px"><span style="flex-grow: 1">Rocket Mortgage</span><span>$2,450 paid</span></div>
+            <div style="display: flex; gap: 10px"><span style="flex-grow: 1">Toyota Financial</span><span>$412 paid</span></div>
+            <div style="display: flex; gap: 10px"><span style="flex-grow: 1">State Farm Insurance</span><span>$186 paid</span></div>
+          </div>
+        </section>
+
+        <section style="background: #FCFDFB; border-radius: 18px; border: 1px solid rgba(22,33,28,0.07); padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+          <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">INCOME</h2>
+          <div style="display: flex; gap: 10px; color: #4A544E"><span style="flex-grow: 1">Payroll — Acme Inc</span><span style="font-size: 12px; color: #5F6963">Nov 1</span><span>$4,800 in</span></div>
+          <div style="display: flex; gap: 10px"><span style="flex-grow: 1">Payroll — Acme Inc</span><span style="font-size: 12px; color: #5F6963">~Nov 15</span><span>$4,800</span></div>
+        </section>
+
+        <section style="background: #FCFDFB; border-radius: 18px; border: 1px solid rgba(22,33,28,0.07); padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+          <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 1.6px; color: #5F6963">SAVINGS GOAL</h2>
+          <div style="display: flex; align-items: baseline; gap: 10px"><span style="flex-grow: 1">Set aside each month</span><span style="font-size: 18px; font-weight: 600; color: #6B5223">$500</span></div>
+          <span style="font-size: 12px; color: #5F6963">Comes off the top, like a bill. Change it in the options menu.</span>
+        </section>
+      </aside>
+    </div>
+  </main>
+</div>
+</script>
+<script>
+(function () {
+  var fns = [];
+  window.__fn = function (i, e) { return fns[i](e); };
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function get(path, scope) { return path.split('.').reduce(function (o, k) { return o == null ? undefined : o[k]; }, scope); }
+  function holes(html, scope) {
+    return html.replace(/\{\{\s*([\w.$]+)\s*\}\}/g, function (m, p) {
+      var v = get(p, scope);
+      if (typeof v === 'function') { fns.push(v); return '__fn(' + (fns.length - 1) + ', event)'; }
+      return esc(v);
+    });
+  }
+  function render(html, scope) {
+    html = html.replace(/<sc-for list="\{\{\s*([\w.]+)\s*\}\}" as="(\w+)"[^>]*>([\s\S]*?)<\/sc-for>/g, function (m, list, as, inner) {
+      return (get(list, scope) || []).map(function (item) { var s = Object.assign({}, scope); s[as] = item; return holes(inner, s); }).join('');
+    });
+    return holes(html, scope);
+  }
+  var money = function (n) { return '$' + Math.round(n).toLocaleString('en-US'); };
+  var pace = 14 / 30;
+  var raw = [
+    { name: 'Groceries', color: '#5E8C6A', spent: 318, plan: 640 },
+    { name: 'Going Out', color: '#586E5A', spent: 186, plan: 300 },
+    { name: 'Dining', color: '#7A6E9A', spent: 141, plan: 220 },
+    { name: 'Home', color: '#6E8CA0', spent: 158, plan: 260 },
+    { name: 'Pets', color: '#8C5A6E', spent: 129, plan: 180 },
+    { name: 'Utilities', color: '#4F7C76', spent: 142, plan: 145 },
+    { name: 'Auto', color: '#9A7B9A', spent: 63, plan: 120 },
+    { name: 'Health', color: '#4C6B5B', spent: 0, plan: 80 },
+    { name: 'Streaming', color: '#A0785A', spent: 16, plan: 16 },
+    { name: 'Everything else', color: '#B9C0BA', spent: 214, plan: 340 }
+  ];
+  var categories = raw.map(function (c) {
+    var ahead = c.spent - c.plan * pace, left = c.plan - c.spent;
+    var over = ahead > c.plan * 0.08 && left > 0;
+    return {
+      name: c.name, color: c.color, spentText: money(c.spent), planText: money(c.plan),
+      fill: Math.min(100, (c.spent / c.plan) * 100).toFixed(1) + '%',
+      barColor: over ? '#B0533C' : '#1E4D3A',
+      note: left <= 0 ? 'Done for the month' : over ? money(ahead) + ' ahead of pace · ' + money(left) + ' left' : money(left) + ' left',
+      leftText: left <= 0 ? 'Done' : money(left),
+      noteColor: over ? '#9C4632' : '#5F6963'
+    };
+  });
+
+  var state = { amount: 300, kind: 'gift' };
+  function affordVals() {
+    var room = 1851, savings = 500, amount = state.amount || 0, kind = state.kind;
+    var pct = function (n) { return amount > 0 ? (Math.max(0, n) / amount * 100).toFixed(1) + '%' : '0%'; };
+    var planLeft = kind === 'going-out' ? 114 : 0;
+    var fromPlan = Math.min(amount, planLeft), rest = amount - fromPlan;
+    var fromRoom = Math.min(rest, room), fromSavings = Math.min(rest - fromRoom, savings);
+    var over = rest - fromRoom - fromSavings, verdict;
+    if (over > 0) {
+      var half = amount / 2;
+      verdict = { title: 'Not this month', fg: '#8F3F2C', bg: '#F5E6E0',
+        body: "It's " + money(rest - room) + ' more than your splurge room, even skipping this month\u2019s savings. '
+          + (half <= room ? 'Split over two months it\u2019s ' + money(half) + ' a month, which fits.' : 'Worth planning across a few months.') };
+    } else if (fromSavings > 0) {
+      verdict = { title: 'Only by trimming savings', fg: '#6B5223', bg: '#F3EEDF',
+        body: "It's " + money(fromSavings) + ' over your splurge room. Skipping that much of this month\u2019s ' + money(savings) + ' savings would cover it; bills and category plans stay intact.' };
+    } else {
+      verdict = { title: 'Yes, go for it', fg: '#1E4D3A', bg: '#E4EEE8',
+        body: (fromPlan > 0 ? money(fromPlan) + ' comes out of Going Out\u2019s plan and ' + money(fromRoom) + ' from splurge room. ' : '')
+          + 'You\u2019d still have ' + money(room - fromRoom) + ' of splurge room this month.' };
+    }
+    verdict.planW = pct(fromPlan); verdict.roomW = pct(fromRoom); verdict.saveW = pct(fromSavings); verdict.overW = pct(over);
+    var parts = [];
+    if (fromPlan > 0) parts.push('Going Out plan ' + money(fromPlan));
+    if (fromRoom > 0) parts.push('splurge room ' + money(fromRoom));
+    if (fromSavings > 0) parts.push('savings ' + money(fromSavings));
+    if (over > 0) parts.push('short ' + money(over));
+    verdict.legend = parts.join(' · ');
+    verdict.barLabel = 'Paid from: ' + verdict.legend;
+    return {
+      amountText: amount ? amount.toLocaleString('en-US') : '',
+      onAmount: function (e) {
+        var n = parseFloat(String(e.target.value).replace(/[^0-9.]/g, ''));
+        state.amount = isNaN(n) ? 0 : n; draw('afford', true);
+      },
+      presets: [100, 300, 800, 2500].map(function (v) {
+        var on = v === amount;
+        return { label: money(v), pressed: on ? 'true' : 'false', bg: on ? '#1E4D3A' : '#FCFDFB', fg: on ? '#FFFFFF' : '#16211C',
+          pick: function () { state.amount = v; draw('afford'); } };
+      }),
+      kinds: [{ id: 'gift', label: 'A gift', hint: 'no plan' }, { id: 'going-out', label: 'Going out', hint: '$114 left' }, { id: 'trip', label: 'A trip', hint: 'no plan' }]
+        .map(function (k) {
+          var on = k.id === kind;
+          return { label: k.label, hint: k.hint, pressed: on ? 'true' : 'false', bg: on ? '#E4EEE8' : '#FCFDFB',
+            border: on ? '#1E4D3A' : 'rgba(22,33,28,0.12)', pick: function () { state.kind = k.id; draw('afford'); } };
+        }),
+      verdict: verdict
+    };
+  }
+  var vals = { main: function () { return { categories: categories }; }, afford: affordVals,
+    plan: function () { return {}; }, mac: function () { return { categories: categories }; } };
+  function draw(id, keepFocus) {
+    var frame = document.querySelector('[data-screen="' + id + '"]');
+    var caret = null;
+    if (keepFocus && document.activeElement && document.activeElement.id === 'amount') caret = document.activeElement.selectionStart;
+    frame.innerHTML = render(document.getElementById('tpl-' + id).textContent, vals[id]());
+    if (caret !== null) { var a = document.getElementById('amount'); a.focus(); var n = a.value.length; a.setSelectionRange(n, n); }
+  }
+  ['main', 'afford', 'plan', 'mac'].forEach(function (id) { draw(id); });
+})();
+</script>
+</body>
+</html>

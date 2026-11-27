@@ -150,7 +150,8 @@ Swift 6.3 toolchain.
   and lookback in the toolbar menu. Pure engine in `Recurring/`; migration v7
   stores removals. Sample data gained four monthly bills and a stopped one.
   **20 new engine tests** (`ExpectedExpensesTests`) + 2 UI tests (iPhone).
-  Mac: builds; a hands-on visual pass is still to do.
+  Mac: visual pass done on a throwaway profile (layout, right-click "Remove
+  from expected", Removed section + Restore all behave; profile deleted after).
 - ✅ **Mac pass (2026-11-26)** of excluded/paused/hold and promos, run by hand-held
   XCUITest against a real store (demo profile + a throwaway profile on SimpleFIN's
   demo bank). It found two Mac-only bugs, both fixed: Debt & Interest reused
