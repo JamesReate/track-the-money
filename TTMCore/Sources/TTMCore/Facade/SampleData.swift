@@ -71,7 +71,6 @@ extension Store {
             ("chk", "t6", "TRADER JOES", -6_120, 7, "groceries"),
             ("chk", "t7", "HOME DEPOT #412", -15_800, 9, "home"),
             ("chk", "t8", "THE DOG GROOMER", -7_500, 11, "pets"),
-            ("chk", "t9", "PAYROLL — ACME INC", 480_000, 14, "income"),
             ("chk", "t10", "NETFLIX.COM", -1_599, 15, "streaming"),
             ("chk", "t11", "AMAZON MKTPL", -4_299, 16, nil),
             ("visa", "t12", "INTEREST CHARGE", -3_812, 5, "interest"),
@@ -110,6 +109,56 @@ extension Store {
                     amountCents: cents, description: payee, payee: payee, memo: nil, pending: false,
                     categoryId: cat, categorySource: "manual",
                     isTransfer: false, transferGroupId: nil, extraJson: nil, createdAt: now, updatedAt: now))
+            }
+        }
+
+        // Monthly budget (MONTHLY_BUDGET_PLAN.md §4). Payroll every 14 days, so
+        // a month gets 2 or 3; a contract client paying irregular amounts,
+        // budgeted as variable; and ~4 months of everyday spending to learn
+        // category plans from. History starts 17 days back so the newest rows
+        // in Transactions stay the hand-written ones above, and uses payees not
+        // used above so UI tests can match those by exact name.
+        func income(_ sfin: String, _ payee: String, _ cents: Int64, _ daysAgo: Int64) throws {
+            guard let aid = localId["chk"] else { return }
+            try saveTransaction(TransactionRecord(
+                id: "txn-\(sfin)", accountId: aid, sfinTxnId: sfin, postedAt: now - daysAgo * day, transactedAt: nil,
+                amountCents: cents, description: payee, payee: payee, memo: nil, pending: false,
+                categoryId: "income", categorySource: "manual",
+                isTransfer: false, transferGroupId: nil, extraJson: nil, createdAt: now, updatedAt: now))
+        }
+        for n in 0..<10 { try income("pay-\(n)", "PAYROLL — ACME INC", 390_000, 5 + Int64(n) * 14) }
+        let contract: [(Int64, Int64)] = [(12, 185_000), (38, 60_000), (47, 140_000), (75, 95_000), (101, 210_000), (118, 45_000)]
+        for (n, (daysAgo, cents)) in contract.enumerated() { try income("nw-\(n)", "NORTHWIND LLC", cents, daysAgo) }
+        try setIncomeSource(key: MerchantKey.of("NORTHWIND LLC"), name: "NORTHWIND LLC", mode: .variable, estimate: nil)
+        try setSetting(Store.budgetSavingsGoalKey, "30000")
+
+        // (category, payees, typical cents, every N days, first daysAgo)
+        let everyday: [(String, [String], Int64, Int64, Int64)] = [
+            ("groceries", ["SAFEWAY", "SPROUTS FARMERS MKT"], 14_800, 7, 17),
+            ("dining", ["CHIPOTLE", "SWEETGREEN"], 3_600, 5, 18),
+            ("going-out", ["BAR CENTRO", "AMC THEATRES", "THE ROSE ROOM", "BOWLERO"], 7_200, 7, 19),
+            ("pets", ["PETCO"], 6_000, 10, 20),
+            ("home", ["IKEA", "LOWES"], 6_500, 8, 21),
+            ("auto", ["CHEVRON"], 5_200, 12, 17),
+            ("health", ["CVS PHARMACY"], 4_000, 15, 23),
+            ("utilities", ["COMCAST"], 8_900, 30, 24),
+            ("utilities", ["PACIFIC GAS ELECTRIC"], 13_500, 30, 36),
+            ("kids", ["TARGET"], 5_500, 10, 18),
+            ("streaming", ["SPOTIFY"], 1_199, 30, 20),
+        ]
+        for (cat, payees, base, every, first) in everyday {
+            guard let aid = localId["chk"] else { continue }
+            var daysAgo = first, k: Int64 = 0
+            while daysAgo <= 125 {
+                let sfin = "hist-\(cat)-\(k)"
+                let cents = base + base * ((k * 37) % 9 - 4) / 20   // ±20%, deterministic
+                let payee = payees[Int(k) % payees.count]
+                try saveTransaction(TransactionRecord(
+                    id: "txn-\(sfin)", accountId: aid, sfinTxnId: sfin, postedAt: now - daysAgo * day, transactedAt: nil,
+                    amountCents: -cents, description: payee, payee: payee, memo: nil, pending: false,
+                    categoryId: cat, categorySource: "manual",
+                    isTransfer: false, transferGroupId: nil, extraJson: nil, createdAt: now, updatedAt: now))
+                daysAgo += every; k += 1
             }
         }
 

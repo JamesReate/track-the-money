@@ -646,6 +646,103 @@ public final class LocalCore: CoreFacade, @unchecked Sendable {
         try store.restoreExpected(key: key)
     }
 
+    // MARK: Monthly budget
+
+    public func budgetMonth(periods: [BudgetPeriod]) async throws -> BudgetMonth {
+        guard let current = periods.first else { throw TTMError.invalidOperation("No month to budget.") }
+        let previous = Array(periods.dropFirst())
+        let now = clock.now()
+        let storedStart = try store.setting(Store.budgetStartedKey)
+        var started = storedStart ?? current.key
+        if started > current.key { started = current.key }
+
+        let bills = try await expectedExpenses(current: current.span, previous: previous.map(\.span))
+        let lookback = previous.prefix(3)
+        let incomeFrom = lookback.map(\.span.start).min() ?? current.span.start
+        let income = ExpectedIncome.compute(
+            deposits: try store.incomeDeposits(from: incomeFrom, to: current.span.end),
+            current: current.span, previous: previous.map(\.span), now: now, settings: try store.incomeSources())
+
+        let carried = previous.filter { $0.key >= started }
+        let from = (Array(lookback) + carried).map(\.span.start).min() ?? current.span.start
+        let charges = try store.recurringCharges(from: from, to: current.span.end)
+        let categories = try budgetCategories()
+
+        var plans = try store.budgetPlans()
+        if !plans.contains(where: { $0.month <= current.key }) {
+            let defaults = Budget.defaultPlans(charges: charges, previous: previous.map(\.span), bills: bills,
+                                               categories: categories)
+            if defaults.values.contains(where: { $0.cents > 0 }) {
+                // Pin only once there's history to learn from. A store opened before its first
+                // sync (or before sample data loads) would otherwise pin $0 plans for the month.
+                try store.setBudgetPlans(month: current.key, defaults.mapValues(\.cents))
+                if storedStart == nil { try store.setSetting(Store.budgetStartedKey, started) }
+                plans = try store.budgetPlans()
+            } else {
+                plans = defaults.map { StoredPlan(month: current.key, categoryId: $0.key, amount: $0.value) }
+            }
+        } else if storedStart == nil {
+            try store.setSetting(Store.budgetStartedKey, started)
+        }
+        let goal = try store.setting(Store.budgetSavingsGoalKey).flatMap(Int64.init) ?? 0
+        return Budget.compute(Budget.Inputs(
+            current: current, previous: previous, now: now, income: income, bills: bills, charges: charges,
+            categories: categories, plans: plans, carryOff: try store.budgetCarryOff(),
+            purchases: try store.plannedPurchases(), savingsGoal: Money(cents: max(0, goal)), startedKey: started))
+    }
+
+    /// Leaf categories money is spent in: no income/transfer, not Uncategorized.
+    private func budgetCategories() throws -> [BudgetCategory] {
+        let all = try store.allCategories()
+        let parents = Set(all.compactMap(\.parentId))
+        return all.filter { !parents.contains($0.id) && !["income", "transfer", "system"].contains($0.kind) }
+            .sorted { ($0.sort, $0.name) < ($1.sort, $1.name) }
+            .map { BudgetCategory(id: $0.id, name: $0.name, color: $0.color) }
+    }
+
+    public func setCategoryPlan(month: String, categoryId: String, plan: Money) async throws {
+        guard plan.cents >= 0 else { throw TTMError.invalidOperation("A plan can't be negative.") }
+        try store.setBudgetPlans(month: month, [categoryId: plan.cents])
+    }
+
+    public func setCategoryCarry(categoryId: String, carry: Bool) async throws {
+        try store.setBudgetCarry(categoryId: categoryId, carry: carry)
+    }
+
+    public func setSavingsGoal(_ goal: Money) async throws {
+        guard goal.cents >= 0 else { throw TTMError.invalidOperation("A savings goal can't be negative.") }
+        try store.setSetting(Store.budgetSavingsGoalKey, String(goal.cents))
+    }
+
+    public func setIncomeMode(key: String, name: String, mode: IncomeMode?, estimate: Money?) async throws {
+        guard !key.isEmpty else { throw TTMError.invalidOperation("No payer.") }
+        if let estimate, estimate.cents < 0 { throw TTMError.invalidOperation("An estimate can't be negative.") }
+        try store.setIncomeSource(key: key, name: name, mode: mode, estimate: mode == .variable ? estimate?.cents : nil)
+    }
+
+    @discardableResult
+    public func savePlannedPurchase(month: String, label: String, amount: Money, categoryId: String?,
+                                    status: PlannedPurchase.Status) async throws -> PlannedPurchase {
+        let name = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard amount.cents > 0 else { throw TTMError.invalidOperation("Enter an amount above $0.") }
+        guard status == .tentative || status == .confirmed else {
+            throw TTMError.invalidOperation("A new purchase is tentative or confirmed.")
+        }
+        let purchase = PlannedPurchase(id: UUID().uuidString, month: month, label: name.isEmpty ? "Purchase" : name,
+                                       amount: amount, categoryId: categoryId, status: status,
+                                       transactionId: nil, createdAt: clock.now())
+        try store.savePlannedPurchase(purchase)
+        return purchase
+    }
+
+    public func updatePlannedPurchase(id: String, status: PlannedPurchase.Status, transactionId: String?,
+                                      month: String?) async throws {
+        guard let p = try store.plannedPurchases().first(where: { $0.id == id }) else { throw TTMError.notFound }
+        try store.savePlannedPurchase(PlannedPurchase(
+            id: p.id, month: month ?? p.month, label: p.label, amount: p.amount, categoryId: p.categoryId,
+            status: status, transactionId: status == .bought ? transactionId : nil, createdAt: p.createdAt))
+    }
+
     public func interestSummary(from: UnixTime, to: UnixTime) async throws -> InterestRollup {
         let rows = try store.interestByAccount(categoryId: DefaultData.interestCategoryId, from: from, to: to)
         let lines = rows.map { InterestLine(accountId: $0.accountId, accountName: $0.name, interest: Money(cents: $0.cents)) }

@@ -255,6 +255,43 @@ public final class Database: @unchecked Sendable {
             """)
         }
 
+        register("v8_monthly_budget") { db in
+            // The monthly budget (MONTHLY_BUDGET_PLAN.md). Income settings per
+            // payer (MerchantKey); plans per category from a month on (a month
+            // with no row inherits the latest earlier one; "everything-else" is
+            // the pooled row, so no FK to categories); carry-over opt-outs; and
+            // purchases saved from "Can I afford it?".
+            try db.execute(sql: """
+            CREATE TABLE income_sources (
+              merchant_key TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              mode TEXT NOT NULL CHECK (mode IN ('regular', 'variable', 'not_budgeted')),
+              estimate_cents INTEGER
+            ) STRICT;
+            CREATE TABLE budget_plans (
+              month TEXT NOT NULL,
+              category_id TEXT NOT NULL,
+              plan_cents INTEGER NOT NULL,
+              PRIMARY KEY (month, category_id)
+            ) STRICT;
+            CREATE TABLE budget_category_settings (
+              category_id TEXT PRIMARY KEY,
+              carry INTEGER NOT NULL DEFAULT 1
+            ) STRICT;
+            CREATE TABLE planned_purchases (
+              id TEXT PRIMARY KEY,
+              month TEXT NOT NULL,
+              label TEXT NOT NULL,
+              amount_cents INTEGER NOT NULL,
+              category_id TEXT,
+              status TEXT NOT NULL CHECK (status IN ('tentative', 'confirmed', 'bought', 'dropped')),
+              transaction_id TEXT,
+              created_at INTEGER NOT NULL
+            ) STRICT;
+            CREATE INDEX idx_planned_purchases_month ON planned_purchases(month);
+            """)
+        }
+
         // ai_suggestions lands in a later migration with the AI (paid) feature.
         return migrator
     }

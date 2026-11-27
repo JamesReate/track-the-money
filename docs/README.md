@@ -39,6 +39,7 @@ decided and why. New feature plans go here as `<FEATURE>_PLAN.md`.
 | [PROMO_APR_PLAN.md](plans/PROMO_APR_PLAN.md) | ✅ Shipped (first cut) — credit-card promo rates with an end date; can cash clear them in time. |
 | [EXPECTED_EXPENSES_PLAN.md](plans/EXPECTED_EXPENSES_PLAN.md) | ✅ Shipped (first cut) — This Month: big recurring bills expected and knocked off as they arrive. |
 | [MONTHLY_BUDGET_DESIGN.html](plans/MONTHLY_BUDGET_DESIGN.html) | 🎨 Design mock — monthly budget: everyday budget, category plans, splurge room, "Can I afford it?". Open in a browser; plan to follow. |
+| [MONTHLY_BUDGET_PLAN.md](plans/MONTHLY_BUDGET_PLAN.md) | ✅ Shipped (first cut) — monthly budget: expected income by payer, category plans with carry-over, splurge room, "Can I afford it?" with saved purchases. |
 | [AGENT_ACCESS_PLAN.md](plans/AGENT_ACCESS_PLAN.md) | 📝 Planned — `ttm` CLI + local MCP server: read-only SQL over curated views for Claude or any MCP client. |
 
 ## Elsewhere in the repo

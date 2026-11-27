@@ -1,8 +1,8 @@
 import XCTest
 
-/// This Month's expected expenses (docs/plans/EXPECTED_EXPENSES_PLAN.md).
-/// Detection rules live in TTMCore's ExpectedExpensesTests; this drives the
-/// screen. Sample bills are 30 days apart, so whether one shows as paid or
+/// This Month's expected expenses (docs/plans/EXPECTED_EXPENSES_PLAN.md), on
+/// the Big Bills screen behind This Month's Big Bills row. Detection rules
+/// live in TTMCore's ExpectedExpensesTests; this drives the screen. Sample bills are 30 days apart, so whether one shows as paid or
 /// coming up depends on today's date — the tests accept either.
 final class ExpectedExpensesUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
@@ -11,6 +11,10 @@ final class ExpectedExpensesUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-resetStore", "-sampleData", "-tab", "month"]
         app.launch()
+        let bills = app.buttons["budget-bills"]
+        XCTAssertTrue(bills.waitForExistence(timeout: 15), "no Big Bills row on This Month")
+        for _ in 0..<8 where !isClear(bills, in: app) { app.scrollViews.firstMatch.swipeUp(velocity: .slow) }
+        bills.tap()
         return app
     }
 

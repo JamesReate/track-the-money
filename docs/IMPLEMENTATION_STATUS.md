@@ -5,11 +5,11 @@ Resume pointer for Track The Money. See [PLAN.md](PLAN.md) (product) and
 Swift 6.3 toolchain.
 
 **Build & test:**
-- Core: `cd TTMCore && swift build && swift test` — **95 passing + 2 live tests skipped by default**.
+- Core: `cd TTMCore && swift build && swift test` — **135 passing + 2 live tests skipped by default**.
 - App: `cd app && swift build` (or `swift run TrackTheMoney` on macOS) — builds clean.
 - UI tests: `xcodebuild test -scheme TrackTheMoney -only-testing:TrackTheMoneyUITests`
   (XCUITest target `app/UITests`) — drives the categorize/create/review/promotion + AI
-  suggestion flows, backup surface, profiles and account management on the Simulator; **15 passing** (live test excluded). (Launch args: `-resetStore` for a clean
+  suggestion flows, backup surface, profiles, account management, expected expenses and the budget on the Simulator; **20 passing** (live test excluded). (Launch args: `-resetStore` for a clean
   DB; `-stubAI` forces the deterministic heuristic categorizer; `-noAI` disables it.)
 - Xcode (multiplatform): `xcodegen generate && open TrackTheMoney.xcodeproj` — see [BUILD.md](BUILD.md).
 
@@ -152,6 +152,31 @@ Swift 6.3 toolchain.
   **20 new engine tests** (`ExpectedExpensesTests`) + 2 UI tests (iPhone).
   Mac: visual pass done on a throwaway profile (layout, right-click "Remove
   from expected", Removed section + Restore all behave; profile deleted after).
+- ✅ **Monthly budget (2026-11-26)**: This Month is now the budget
+  (`docs/plans/MONTHLY_BUDGET_PLAN.md`, ADR-0028).
+  - **The month:** "Left this month", a split bar, splurge room, and "Can I
+    afford it?", which draws on the category plan, then splurge room, then
+    savings.
+  - **Everyday spending:** per-category plans (3-month medians, pinned per
+    month), a pace tick, and signed carry-over (on by default, per-category
+    switch).
+  - **Big bills** sit behind a row. The old list is now `BigBillsView`.
+  - **Income per payer:** regular (biweekly, semimonthly or monthly detected),
+    variable (lowest month or a typed estimate) or not budgeted. Late income is
+    flagged.
+  - **Saved purchases:** maybe, planned, bought (linked to its charge) or
+    dropped, and they can be moved to next month.
+  - **Plumbing:** migration v8; This Month moved to the 4th tab.
+  - **Tests:** 20 new engine tests (`ExpectedIncomeTests`, `BudgetTests`,
+    `BudgetFacadeTests`) and 3 UI tests (iPhone). The full iPhone suite passes
+    (21, 1 live skipped).
+  - **Mac pass (2026-11-27)** on a throwaway profile, since deleted. It found
+    a real bug: the first compute pinned $0 plans when the store had no
+    history yet (a profile opened before sample data loaded, or before a
+    first sync), and every later month inherited them. Plans now pin only
+    once the defaults have something in them (regression test in
+    `BudgetFacadeTests`). Also fixed: the plan line in the history chart
+    struck through the bar labels, and the carry card didn't fill the column.
 - ✅ **Mac pass (2026-11-26)** of excluded/paused/hold and promos, run by hand-held
   XCUITest against a real store (demo profile + a throwaway profile on SimpleFIN's
   demo bank). It found two Mac-only bugs, both fixed: Debt & Interest reused

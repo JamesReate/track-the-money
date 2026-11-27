@@ -45,6 +45,8 @@ public final class AppModel {
     public var spending: [SpendingLine] = []
     /// This Month: big recurring bills still to come and already paid (ADR-0027).
     public var expectedMonth: ExpectedMonth?
+    /// This month's budget (MONTHLY_BUDGET_PLAN.md); `expectedMonth` is its bills.
+    public var budget: BudgetMonth?
     public var spendingPeriods: [SpendingPeriod] = []
     public var selectedSpendingPeriod = ""
     public var statusMessage = ""
@@ -664,8 +666,76 @@ public final class AppModel {
     }
 
     private func reloadExpected() async throws {
-        let (current, previous) = Self.expectedMonths()
-        expectedMonth = try await core.expectedExpenses(current: current, previous: previous)
+        let periods = Self.budgetPeriods()
+        let month = try await core.budgetMonth(periods: periods)
+        budget = month
+        expectedMonth = month.bills
+    }
+
+    /// The current local month and the 24 before it, most recent first, keyed
+    /// "yyyy-MM": three for plan defaults and income, the rest for carry-over.
+    static func budgetPeriods(now: Date = Date(), calendar cal: Calendar = .current, count: Int = 25) -> [BudgetPeriod] {
+        let start = cal.date(from: cal.dateComponents([.year, .month], from: now)) ?? now
+        return (0..<count).map { i in
+            let s = cal.date(byAdding: .month, value: -i, to: start) ?? start
+            let e = cal.date(byAdding: .month, value: 1, to: s) ?? s
+            let c = cal.dateComponents([.year, .month], from: s)
+            return BudgetPeriod(key: String(format: "%04d-%02d", c.year ?? 0, c.month ?? 0),
+                                span: MonthSpan(start: Time.unix(s), end: Time.unix(e)))
+        }
+    }
+
+    /// The key of the month after `key` ("2026-12" → "2027-01").
+    static func monthKey(after key: String) -> String {
+        let parts = key.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 2 else { return key }
+        let (y, m) = parts[1] == 12 ? (parts[0] + 1, 1) : (parts[0], parts[1] + 1)
+        return String(format: "%04d-%02d", y, m)
+    }
+
+    // MARK: Monthly budget (docs/plans/MONTHLY_BUDGET_PLAN.md)
+
+    private func budgetAction(_ work: () async throws -> Void) async {
+        do { try await work(); try await reloadExpected() }
+        catch { statusMessage = Self.message(error) }
+    }
+
+    public func setPlan(_ row: BudgetRow, to plan: Money) async {
+        guard let month = budget?.period.key else { return }
+        await budgetAction { try await core.setCategoryPlan(month: month, categoryId: row.id, plan: plan) }
+    }
+
+    /// Give a category in Everything else a plan of its own.
+    public func planSeparately(categoryId: String, plan: Money) async {
+        guard let month = budget?.period.key else { return }
+        await budgetAction { try await core.setCategoryPlan(month: month, categoryId: categoryId, plan: plan) }
+    }
+
+    public func setCarry(_ row: BudgetRow, _ carry: Bool) async {
+        await budgetAction { try await core.setCategoryCarry(categoryId: row.id, carry: carry) }
+    }
+
+    public func setSavingsGoal(_ goal: Money) async {
+        await budgetAction { try await core.setSavingsGoal(goal) }
+    }
+
+    public func setIncomeMode(_ source: IncomeSourceMonth, mode: IncomeMode?, estimate: Money?) async {
+        await budgetAction { try await core.setIncomeMode(key: source.key, name: source.name, mode: mode, estimate: estimate) }
+    }
+
+    public func savePurchase(label: String, amount: Money, categoryId: String?, status: PlannedPurchase.Status) async {
+        guard let month = budget?.period.key else { return }
+        await budgetAction {
+            try await core.savePlannedPurchase(month: month, label: label, amount: amount, categoryId: categoryId, status: status)
+        }
+    }
+
+    public func setPurchase(_ p: PlannedPurchase, status: PlannedPurchase.Status, transactionId: String? = nil) async {
+        await budgetAction { try await core.updatePlannedPurchase(id: p.id, status: status, transactionId: transactionId, month: nil) }
+    }
+
+    public func movePurchase(_ p: PlannedPurchase, to month: String) async {
+        await budgetAction { try await core.updatePlannedPurchase(id: p.id, status: p.status, transactionId: nil, month: month) }
     }
 
     public func dismissExpected(_ item: ExpectedExpense) async {

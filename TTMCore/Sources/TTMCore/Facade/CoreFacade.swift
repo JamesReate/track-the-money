@@ -306,6 +306,24 @@ public protocol CoreFacade: Sendable {
     func dismissExpectedExpense(key: String, name: String) async throws
     func restoreExpectedExpense(key: String) async throws
 
+    // Monthly budget (docs/plans/MONTHLY_BUDGET_PLAN.md)
+    /// The budget for `periods[0]`; the rest are earlier months, most recent
+    /// first (3 for plan defaults and income, more for carry-over). The first
+    /// call for a month with no plans stores the default plans for it.
+    func budgetMonth(periods: [BudgetPeriod]) async throws -> BudgetMonth
+    /// Set a category's plan (or `Budget.everythingElseId`) from `month` on.
+    func setCategoryPlan(month: String, categoryId: String, plan: Money) async throws
+    func setCategoryCarry(categoryId: String, carry: Bool) async throws
+    func setSavingsGoal(_ goal: Money) async throws
+    /// Choose how a payer counts; nil `mode` returns it to the default.
+    func setIncomeMode(key: String, name: String, mode: IncomeMode?, estimate: Money?) async throws
+    @discardableResult
+    func savePlannedPurchase(month: String, label: String, amount: Money, categoryId: String?,
+                             status: PlannedPurchase.Status) async throws -> PlannedPurchase
+    /// Change a saved purchase: its status, the transaction it was bought
+    /// with (status `.bought`), or move it to another month.
+    func updatePlannedPurchase(id: String, status: PlannedPurchase.Status, transactionId: String?, month: String?) async throws
+
     // Interest & debt cost
     func setPaymentSplit(transactionId: String, principal: Money, interest: Money, escrow: Money) async throws
     func interestSummary(from: UnixTime, to: UnixTime) async throws -> InterestRollup

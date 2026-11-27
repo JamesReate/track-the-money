@@ -575,6 +575,125 @@ public struct Store: Sendable {
         try queue.write { try $0.execute(sql: "DELETE FROM expected_expense_dismissals WHERE merchant_key = ?", arguments: [key]) }
     }
 
+    // MARK: Monthly budget (MONTHLY_BUDGET_PLAN.md)
+
+    public static let budgetStartedKey = "budget_started_month"
+    public static let budgetSavingsGoalKey = "budget_savings_goal_cents"
+
+    /// Money in [from, to) categorized as Income on counting accounts, as
+    /// positive amounts; no transfers. Pending deposits are dated by when
+    /// they happened.
+    public func incomeDeposits(from: Int64, to: Int64) throws -> [RecurringCharge] {
+        try queue.read { db in
+            try ChargeRow.fetchAll(db, sql: """
+                SELECT t.id AS id,
+                       COALESCE(NULLIF(t.payee, ''), t.description) AS label,
+                       t.amount_cents AS cents,
+                       COALESCE(t.posted_at, t.transacted_at) AS at,
+                       COALESCE(a.nickname, a.name) AS account,
+                       t.category_id AS categoryId
+                FROM transactions t
+                JOIN accounts a ON a.id = t.account_id
+                JOIN categories c ON c.id = t.category_id
+                WHERE \(Self.visibleTxn) AND a.archived = 0
+                  AND t.amount_cents > 0 AND t.is_transfer = 0 AND c.kind = 'income'
+                  AND COALESCE(t.posted_at, t.transacted_at) >= ?
+                  AND COALESCE(t.posted_at, t.transacted_at) < ?
+                """, arguments: [from, to])
+        }.map {
+            RecurringCharge(transactionId: $0.id, label: $0.label, amount: Money(cents: $0.cents), at: $0.at,
+                            accountName: $0.account, categoryId: $0.categoryId)
+        }
+    }
+
+    public func incomeSources() throws -> [IncomeSourceSetting] {
+        try queue.read { db in
+            try Row.fetchAll(db, sql: "SELECT merchant_key, name, mode, estimate_cents FROM income_sources").compactMap { row in
+                guard let mode = IncomeMode(rawValue: row["mode"]) else { return nil }
+                let estimate: Int64? = row["estimate_cents"]
+                return IncomeSourceSetting(key: row["merchant_key"], name: row["name"], mode: mode,
+                                           estimate: estimate.map(Money.init(cents:)))
+            }
+        }
+    }
+
+    /// Upsert one payer's mode; nil `mode` forgets the choice (back to the default).
+    public func setIncomeSource(key: String, name: String, mode: IncomeMode?, estimate: Int64?) throws {
+        try queue.write { db in
+            guard let mode else {
+                try db.execute(sql: "DELETE FROM income_sources WHERE merchant_key = ?", arguments: [key])
+                return
+            }
+            try db.execute(sql: """
+                INSERT INTO income_sources (merchant_key, name, mode, estimate_cents) VALUES (?, ?, ?, ?)
+                ON CONFLICT(merchant_key) DO UPDATE SET name = excluded.name, mode = excluded.mode,
+                  estimate_cents = excluded.estimate_cents
+                """, arguments: [key, name, mode.rawValue, estimate])
+        }
+    }
+
+    public func budgetPlans() throws -> [StoredPlan] {
+        try queue.read { db in
+            try Row.fetchAll(db, sql: "SELECT month, category_id, plan_cents FROM budget_plans").map {
+                StoredPlan(month: $0["month"], categoryId: $0["category_id"], amount: Money(cents: $0["plan_cents"]))
+            }
+        }
+    }
+
+    /// Write plans for one month (insert or replace each category's row).
+    public func setBudgetPlans(month: String, _ plans: [String: Int64]) throws {
+        try queue.write { db in
+            for (category, cents) in plans {
+                try db.execute(sql: """
+                    INSERT INTO budget_plans (month, category_id, plan_cents) VALUES (?, ?, ?)
+                    ON CONFLICT(month, category_id) DO UPDATE SET plan_cents = excluded.plan_cents
+                    """, arguments: [month, category, cents])
+            }
+        }
+    }
+
+    public func budgetCarryOff() throws -> Set<String> {
+        try queue.read { db in
+            Set(try String.fetchAll(db, sql: "SELECT category_id FROM budget_category_settings WHERE carry = 0"))
+        }
+    }
+
+    public func setBudgetCarry(categoryId: String, carry: Bool) throws {
+        try queue.write { db in
+            try db.execute(sql: """
+                INSERT INTO budget_category_settings (category_id, carry) VALUES (?, ?)
+                ON CONFLICT(category_id) DO UPDATE SET carry = excluded.carry
+                """, arguments: [categoryId, carry ? 1 : 0])
+        }
+    }
+
+    public func plannedPurchases() throws -> [PlannedPurchase] {
+        try queue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT id, month, label, amount_cents, category_id, status, transaction_id, created_at
+                FROM planned_purchases
+                """).compactMap { row in
+                guard let status = PlannedPurchase.Status(rawValue: row["status"]) else { return nil }
+                return PlannedPurchase(id: row["id"], month: row["month"], label: row["label"],
+                                       amount: Money(cents: row["amount_cents"]), categoryId: row["category_id"],
+                                       status: status, transactionId: row["transaction_id"], createdAt: row["created_at"])
+            }
+        }
+    }
+
+    public func savePlannedPurchase(_ p: PlannedPurchase) throws {
+        try queue.write { db in
+            try db.execute(sql: """
+                INSERT INTO planned_purchases (id, month, label, amount_cents, category_id, status, transaction_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET month = excluded.month, label = excluded.label,
+                  amount_cents = excluded.amount_cents, category_id = excluded.category_id,
+                  status = excluded.status, transaction_id = excluded.transaction_id
+                """, arguments: [p.id, p.month, p.label, p.amount.cents, p.categoryId, p.status.rawValue,
+                                 p.transactionId, p.createdAt])
+        }
+    }
+
     // MARK: Payment splits & interest
 
     /// One split per transaction: replace any existing.

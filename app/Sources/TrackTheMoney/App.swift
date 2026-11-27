@@ -51,10 +51,12 @@ struct RootView: View {
                 .tabItem { Label("Accounts", systemImage: "building.columns") }.tag("accounts")
             TransactionsView(model: model)
                 .tabItem { Label("Transactions", systemImage: "list.bullet") }.tag("transactions")
-            SpendingView(model: model)
-                .tabItem { Label("Spending", systemImage: "chart.bar") }.tag("spending")
+            // This Month is fourth so it stays in the iPhone tab bar: under More,
+            // its NavigationStack nests in More's and pushes show two back buttons.
             ThisMonthView(model: model)
                 .tabItem { Label("This Month", systemImage: "calendar") }.tag("month")
+            SpendingView(model: model)
+                .tabItem { Label("Spending", systemImage: "chart.bar") }.tag("spending")
             CategoriesView(model: model)
                 .tabItem { Label("Categories", systemImage: "tag") }.tag("categories")
             RulesView(model: model)

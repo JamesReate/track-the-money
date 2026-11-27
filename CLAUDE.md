@@ -23,7 +23,9 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
     `OnDeviceCategorizer` protocol (+ `NoOpOnDeviceCategorizer`).
   - `NetWorth/`, `Interest/` — pure rollup/series math.
   - `Recurring/` — `MerchantKey` + `ExpectedExpenses` (pure detection of big
-    recurring bills for This Month).
+    recurring bills) + `ExpectedIncome` (expected income per payer).
+  - `Budget/` — `Budget` (pure monthly budget: plans, carry, splurge room,
+    afford check, planned purchases).
   - `Facade/` — `CoreFacade` protocol, `LocalCore` implementation,
     `SampleData` (demo seed, `LocalCore.loadSampleData()`).
   - `Crypto/`, `SyncClient/` — Milestone 2 stubs.
@@ -34,7 +36,7 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
   (`KeychainSecretStore`, `URLSessionNetworkClient`,
   `FoundationModelsCategorizer`, `HeuristicOnDeviceCategorizer`).
 - `app/UITests/` — XCUITest target (`CategorizeUITests`, `BackupUITests`,
-  `ProfilesUITests`, `AccountsUITests`, `ExpectedExpensesUITests`).
+  `ProfilesUITests`, `AccountsUITests`, `ExpectedExpensesUITests`, `BudgetUITests`).
 - `project.yml` — XcodeGen spec (source of truth for the Xcode project).
 - `docs/` — **all documentation lives here**; only `README.md` and `CLAUDE.md`
   stay at the repo root. `docs/IMPLEMENTATION_STATUS.md` (running status doc —
@@ -62,9 +64,10 @@ yet; Milestone 2 (paid cloud relay) is unstarted — see `contract/openapi.yaml`
     shipped, §5 lists what to think about next.
   - `EXPECTED_EXPENSES_PLAN.md` — This Month: big recurring bills expected,
     knocked off as they arrive; first cut shipped, §5 is the road to budgets.
-  - `MONTHLY_BUDGET_DESIGN.html` — design mock (open in a browser) for the
-    monthly budget: category plans, splurge room, "Can I afford it?"; the
-    plan doc is still to be written.
+  - `MONTHLY_BUDGET_PLAN.md` — monthly budget: expected income per payer,
+    category plans with carry-over, splurge room, "Can I afford it?"; first
+    cut shipped, §6 lists what's open. `MONTHLY_BUDGET_DESIGN.html` is its
+    design mock (open in a browser).
   - `AGENT_ACCESS_PLAN.md` — `ttm` CLI + local MCP server (read-only SQL over
     curated temp views, opt-in per profile); planned, not started.
 
@@ -104,7 +107,7 @@ anything; if it *is* wrong, write a superseding ADR rather than quietly breaking
 ## Build & test
 
 ```bash
-cd TTMCore && swift test                 # engine tests (115 + 2 opt-in live, XCTest)
+cd TTMCore && swift test                 # engine tests (135 + 2 opt-in live, XCTest)
 cd app && swift build                    # SwiftUI compiles headlessly (macOS host)
 cd app && swift run TrackTheMoney        # run the Mac app from CLI
 xcodegen generate                        # project.yml → TrackTheMoney.xcodeproj
@@ -121,8 +124,8 @@ xcodebuild test -scheme TrackTheMoney -only-testing:TrackTheMoneyUITests
     sample data is a starting point for Settings → New profile…).
   - `-profile <name>` — open that profile at launch, creating it (as `test`) if
     missing. Runs before `-sampleData`.
-  - `-tab <name>` — select a tab; tags: `networth accounts transactions spending
-    month categories rules realestate debt settings`.
+  - `-tab <name>` — select a tab; tags: `networth accounts transactions month
+    spending categories rules realestate debt settings`.
   - `-resetStore` — delete `Application Support/TrackTheMoney/` (every profile,
     `profiles.json`, any legacy `ttm.db`) before opening.
   - `-stubAI` — force `HeuristicOnDeviceCategorizer` (deterministic, for tests);
@@ -258,8 +261,8 @@ Per `docs/plans/ACCOUNT_MANAGEMENT_PLAN.md`, decided in ADR-0024 and ADR-0025:
 
 ## Expected expenses (shipped)
 
-Per `docs/plans/EXPECTED_EXPENSES_PLAN.md`, decided in ADR-0027. The This Month
-tab (`ThisMonthView`, tag `month`):
+Per `docs/plans/EXPECTED_EXPENSES_PLAN.md`, decided in ADR-0027. The Big Bills
+screen (`BigBillsView`, behind This Month's Big Bills row):
 
 - `ExpectedExpenses.compute` is pure. The app passes local month boundaries
   (`AppModel.expectedMonths`, current + 3 previous, most recent first); TTMCore
@@ -272,6 +275,31 @@ tab (`ThisMonthView`, tag `month`):
 - New user-facing account queries still filter excluded accounts —
   `Store.recurringCharges` uses `visibleTxn`.
 
+## Monthly budget (shipped)
+
+Per `docs/plans/MONTHLY_BUDGET_PLAN.md`, decided in ADR-0028. This Month
+(`ThisMonthView`, tag `month`, 4th tab) is the budget:
+
+- `LocalCore.budgetMonth(periods:)` takes `BudgetPeriod`s (local month span +
+  `yyyy-MM` key) from `AppModel.budgetPeriods` (current + 24 earlier). It
+  **writes** default plans for a month that has none and sets
+  `budget_started_month`, so the first compute pins that month. It pins only
+  when the defaults are non-zero: an empty store (before the first sync)
+  computes unpinned, or it would pin $0 plans forever.
+- Plans are per **leaf** category or `Budget.everythingElseId`, stored from a
+  month on (`budget_plans`); a month inherits the latest earlier row. Carry is
+  signed (overspend carries as less). Splurge room can be negative.
+- Everyday spending excludes big-bill merchants by `MerchantKey` and is dated
+  by `COALESCE(posted_at, transacted_at)`; the Spending tab uses `posted_at`
+  only. Don't "fix" one to match the other.
+- Income counts only Income-categorized deposits, per payer (`income_sources`,
+  keyed by `MerchantKey` like dismissals). Purchases: only `confirmed` reduces
+  splurge room; `bought` links a charge so it isn't counted twice.
+- This Month uses a `ScrollView` of cards (not a `List`): UI tests scroll
+  `app.scrollViews.firstMatch`. Big Bills is still a `List`.
+- Kept out of iPhone's More tab on purpose: a NavigationStack under More nests
+  in More's and pushed screens show two back buttons.
+
 ## Gotchas
 
 - Gitignored and regenerated: `*.xcodeproj/`, `Package.resolved`, `.build/`,
@@ -280,7 +308,7 @@ tab (`ThisMonthView`, tag `month`):
   `didInsert(_:)`); `Database` is `@unchecked Sendable`.
 - Migrations are append-only: v1 schema, v2 FTS5 (+triggers), v3 account
   nickname, v4 uncategorized partial index, v5 account status + resync_from,
-  v6 promo APR, v7 expected-expense dismissals. Category tree/color seeding is NOT a
+  v6 promo APR, v7 expected-expense dismissals, v8 monthly budget. Category tree/color seeding is NOT a
   migration — `DefaultData.ensureCategories` reconciles idempotently at startup
   and must never clobber user edits.
 - SimpleFIN error payload key is `errors` (not `errlist`) — guarded by
